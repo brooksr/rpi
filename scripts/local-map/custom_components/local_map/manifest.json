@@ -1,0 +1,9 @@
+{
+  "domain": "local_map",
+  "name": "Local Map feeds",
+  "version": "1.0.0",
+  "documentation": "https://www.sce.com/outages-safety/outage-center/check-outage-status",
+  "dependencies": ["http"],
+  "codeowners": [],
+  "iot_class": "cloud_polling"
+}

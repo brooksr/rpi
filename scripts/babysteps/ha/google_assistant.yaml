@@ -1,0 +1,80 @@
+# Google Assistant (manual setup) — installed by scripts/babysteps/install.sh
+# as /config/packages/google_assistant.yaml once secrets.yaml has
+# `google_assistant_project_id` (the Google Home Developer Console project id).
+#
+# Google reaches HA at https://<pi>.<tailnet>.ts.net:10000 (Tailscale
+# Funnel → 127.0.0.1:8123). HA must trust that proxy — Settings → System →
+# Network: use X-Forwarded-For, trusted proxies 127.0.0.1 and ::1 — or it
+# answers every request through the Funnel with a 400.
+#
+# Only the BabySteps switches (packages/babysteps.yaml) are exposed. They
+# were scenes first, but Google filed those where nothing could reach them and
+# sent "wet diaper" to web search; a switch is a tile with an on/off command.
+# Every name leads with "BabySteps" so the phrase cannot be mistaken for a
+# question. The phrase that reliably reaches it is "Hey Google, in Google Home
+# run BabySteps wet" — without "in Google Home", Gemini can answer it itself.
+# After a change here say "Hey Google, sync my devices": without a service
+# account HA cannot push it.
+google_assistant:
+  project_id: !secret google_assistant_project_id
+  expose_by_default: false
+  entity_config:
+    switch.babysteps_wet:
+      expose: true
+      name: BabySteps wet
+      aliases:
+        - BabySteps wet diaper
+    switch.babysteps_dirty:
+      expose: true
+      name: BabySteps dirty
+      aliases:
+        - BabySteps dirty diaper
+    switch.babysteps_both:
+      expose: true
+      name: BabySteps both
+      aliases:
+        - BabySteps both diaper
+    switch.babysteps_dirty_small:
+      expose: true
+      name: BabySteps dirty small
+      aliases:
+        - BabySteps small poop
+    switch.babysteps_dirty_medium:
+      expose: true
+      name: BabySteps dirty medium
+      aliases:
+        - BabySteps medium poop
+    switch.babysteps_dirty_large:
+      expose: true
+      name: BabySteps dirty large
+      aliases:
+        - BabySteps large poop
+    switch.babysteps_bath:
+      expose: true
+      name: BabySteps bath
+    switch.babysteps_both_small:
+      expose: true
+      name: BabySteps both small
+    switch.babysteps_both_medium:
+      expose: true
+      name: BabySteps both medium
+    switch.babysteps_both_large:
+      expose: true
+      name: BabySteps both large
+    switch.babysteps_start_bottle:
+      expose: true
+      name: BabySteps start bottle
+    switch.babysteps_start_nursing:
+      expose: true
+      name: BabySteps start nursing
+    switch.babysteps_start_sleep:
+      expose: true
+      name: BabySteps start sleep
+      aliases:
+        - BabySteps asleep
+    switch.babysteps_start_pump:
+      expose: true
+      name: BabySteps start pump
+    switch.babysteps_start_tummy_time:
+      expose: true
+      name: BabySteps start tummy time

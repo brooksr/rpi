@@ -1,0 +1,211 @@
+# BabySteps for Home Assistant — installed by scripts/babysteps/install.sh as
+# /config/packages/babysteps.yaml. Edit it here, not on the Pi; a re-install
+# overwrites it.
+#
+# Entries go to the BabySteps internal backend through HA's enrolled BabySteps
+# device: /config/scripts/local-babysteps-today.py (scripts/local-map/
+# babysteps_today.py) `log` mode, which applies the same request rules and
+# replies as the retired events API (that API now answers 410). The payload is
+# passed base64-encoded so a note's text can't break the command line.
+#
+# Four ways in, all ending at shell_command.babysteps_log:
+#   - intent_script BabyStepsLog   Assist voice or typing ("log 4 oz bottle"),
+#                                  sentences in /config/custom_sentences/en/babysteps.yaml
+#   - switch.babysteps_*           fixed actions Google Home can trigger
+#                                  ("Hey Google, in Google Home run BabySteps wet")
+#   - the BabySteps dashboard (dashboards/babysteps_voice.yaml): the same
+#     switches as tap-to-log tiles, plus every phrase written out
+#   - shell_command.babysteps_log  any payload, from any automation or script
+
+shell_command:
+  babysteps_log: "python3 /config/scripts/local-babysteps-today.py log {{ payload | to_json | base64_encode }}"
+
+# One handler for every sentence. Each sentence fixes `entry` (the event type,
+# and `method` for nursing) in custom_sentences; the values it caught — amount,
+# minutes, side, mood, the note's text, `started` for "start …" — are forwarded
+# only when the sentence had them, so BabySteps validates exactly what was said and answers for itself:
+# its confirmation on success, its reasons on a refusal. A new kind of entry is
+# a new sentence block, not a new handler.
+intent_script:
+  BabyStepsLog:
+    action:
+      # A refusal or an unreachable Pi can raise instead of returning; this is
+      # what the reply reads then.
+      - variables: { result: { stdout: '' } }
+      - action: shell_command.babysteps_log
+        continue_on_error: true
+        data:
+          payload: >-
+            {% set p = dict(type=entry, source='voice') %}
+            {% if amount is defined %}{% set p = dict(p, amount=amount, unit=unit | default('oz')) %}{% endif %}
+            {% if method is defined %}{% set p = dict(p, method=method) %}{% endif %}
+            {% if side is defined %}{% set p = dict(p, side=side) %}{% endif %}
+            {% if diaper_type is defined %}{% set p = dict(p, diaperType=diaper_type) %}{% endif %}
+            {% if poop_size is defined %}{% set p = dict(p, poopSize=poop_size) %}{% endif %}
+            {% if minutes is defined or hours is defined %}{% set p = dict(p, durationMinutes=(minutes | default(0) | int) + (hours | default(0) | int) * 60) %}{% endif %}
+            {% if mood is defined %}{% set p = dict(p, level=mood) %}{% endif %}
+            {% if note is defined %}{% set p = dict(p, text=note) %}{% endif %}
+            {% if started is defined %}{% set p = dict(p, started=true) %}{% endif %}
+            {% if child is defined %}{% set p = dict(p, child=child) %}{% endif %}
+            {{ p }}
+        response_variable: result
+      - stop: ""
+        response_variable: result
+    speech:
+      text: >-
+        {% set out = (action_response | default({})).stdout | default('') %}
+        {% set r = out | from_json if out.startswith('{') else {} %}
+        {% if r.ok | default(false) %}{{ r.message }}
+        {% elif r.errors is defined %}BabySteps didn't save that. {{ r.errors | join(' ') }}
+        {% else %}BabySteps didn't save that. The Home Assistant log says why.{% endif %}
+
+# What Google Home sees: one switch per fixed entry. Google files a third-party
+# *scene* away where nothing reaches it, but a switch is a tile that answers
+# "Hey Google, in Google Home run BabySteps wet". Turning one on logs the entry;
+# it always reads off, so it is ready for the next one. Google cannot pass a
+# number or free text, so amounts, minutes, mood and notes go through Assist —
+# or a "start" switch logs the entry begun now, to finish in the app.
+# The first three keep their original unique_ids, so the Google link keeps them.
+# Exposed in google_assistant.yaml — a new switch there needs "sync my devices".
+template:
+  - switch:
+      - name: BabySteps wet
+        unique_id: babysteps_wet_diaper_switch
+        icon: mdi:water
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: wet, source: google } }
+      - name: BabySteps dirty
+        unique_id: babysteps_dirty_diaper_switch
+        icon: mdi:emoticon-poop
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: dirty, source: google } }
+      - name: BabySteps both
+        unique_id: babysteps_both_diaper_switch
+        icon: mdi:baby-face-outline
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: both, source: google } }
+      - name: BabySteps dirty small
+        unique_id: babysteps_dirty_small_switch
+        icon: mdi:size-s
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: dirty, poopSize: small, source: google } }
+      - name: BabySteps dirty medium
+        unique_id: babysteps_dirty_medium_switch
+        icon: mdi:size-m
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: dirty, poopSize: medium, source: google } }
+      - name: BabySteps dirty large
+        unique_id: babysteps_dirty_large_switch
+        icon: mdi:size-l
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: dirty, poopSize: large, source: google } }
+      - name: BabySteps both small
+        unique_id: babysteps_both_small_switch
+        icon: mdi:size-s
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: both, poopSize: small, source: google } }
+      - name: BabySteps both medium
+        unique_id: babysteps_both_medium_switch
+        icon: mdi:size-m
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: both, poopSize: medium, source: google } }
+      - name: BabySteps both large
+        unique_id: babysteps_both_large_switch
+        icon: mdi:size-l
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: diaper, diaperType: both, poopSize: large, source: google } }
+      - name: BabySteps bath
+        unique_id: babysteps_bath_switch
+        icon: mdi:bathtub
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: bath, source: google } }
+      - name: BabySteps start bottle
+        unique_id: babysteps_start_bottle_switch
+        icon: mdi:baby-bottle-outline
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: feed, method: bottle, started: true, source: google } }
+      - name: BabySteps start nursing
+        unique_id: babysteps_start_nursing_switch
+        icon: mdi:mother-nurse
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: feed, method: nursing, started: true, source: google } }
+      - name: BabySteps start sleep
+        unique_id: babysteps_start_sleep_switch
+        icon: mdi:sleep
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: sleep, started: true, source: google } }
+      - name: BabySteps start pump
+        unique_id: babysteps_start_pump_switch
+        icon: mdi:water-pump
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: pump, started: true, source: google } }
+      - name: BabySteps start tummy time
+        unique_id: babysteps_start_tummy_switch
+        icon: mdi:human-baby-changing-table
+        state: "{{ false }}"
+        turn_on:
+          - action: shell_command.babysteps_log
+            data: { payload: { type: tummytime, started: true, source: google } }
+
+# A bottle with an amount from a dashboard or an automation — the one entry the
+# dashboard offers with a number, since a tile cannot ask for one.
+script:
+  babysteps_log_feed:
+    alias: BabySteps bottle
+    icon: mdi:baby-bottle-outline
+    fields:
+      amount:
+        description: How much
+        example: 4
+        required: true
+        selector:
+          number: { min: 0.25, max: 16, step: 0.25 }
+      unit:
+        default: oz
+        selector:
+          select: { options: [oz, ml] }
+    sequence:
+      - action: shell_command.babysteps_log
+        data:
+          payload: "{{ {'type': 'feed', 'amount': amount, 'unit': unit | default('oz'), 'source': 'home-assistant'} }}"
+
+# The BabySteps dashboard in the sidebar: tap-to-log tiles and the phrase
+# guide, so nobody has to remember any of this. It replaced an iframe of the app
+# itself, which had to sign in to Google again every time it was opened.
+lovelace:
+  dashboards:
+    # HA requires a hyphen in a dashboard's URL: /baby-steps.
+    baby-steps:
+      mode: yaml
+      filename: dashboards/babysteps_voice.yaml
+      title: BabySteps
+      icon: mdi:baby-carriage
+      show_in_sidebar: true

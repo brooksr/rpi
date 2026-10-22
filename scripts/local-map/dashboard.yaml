@@ -1,0 +1,13 @@
+title: Local Map
+views:
+  - title: Local conditions
+    path: conditions
+    panel: true
+    cards:
+      - type: custom:local-map-card
+        title: Thousand Oaks
+        circuit: @@PSPS_CIRCUIT@@
+        latitude: @@HOME_LAT@@
+        longitude: @@HOME_LON@@
+        zoom: 13
+        status_entity: sensor.power_shutoff

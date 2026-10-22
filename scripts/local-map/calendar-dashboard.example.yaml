@@ -1,0 +1,39 @@
+# Example: copy to calendar-dashboard.yaml (gitignored) and list your own
+# Google calendars. install.sh uses the example when no local copy exists.
+title: Calendar
+views:
+  - title: Agenda
+    path: agenda
+    icon: mdi:calendar-agenda
+    panel: true
+    cards:
+      - type: custom:local-calendar-card
+        url: 'https://calendar.google.com/calendar/embed?src=conejovalleyguide%40gmail.com&src=YOUR_CALENDAR_ID%40group.calendar.google.com&ctz=America%2FLos_Angeles&mode=AGENDA&showPrint=0&showTitle=0'
+  - title: Month
+    path: month
+    icon: mdi:calendar-month
+    panel: true
+    cards:
+      - type: custom:local-calendar-card
+        url: 'https://calendar.google.com/calendar/embed?src=conejovalleyguide%40gmail.com&src=YOUR_CALENDAR_ID%40group.calendar.google.com&ctz=America%2FLos_Angeles&mode=MONTH&showPrint=0&showTitle=0'
+  - title: Household
+    path: household
+    icon: mdi:home-clock
+    cards:
+      - type: custom:household-schedule-card
+  - title: Sources
+    path: sources
+    icon: mdi:calendar-multiple
+    cards:
+      - type: markdown
+        content: |
+          ## Family & local events
+
+          The Agenda and Month tabs combine:
+
+          - [Ventura County Events / Conejo Valley Guide](https://calendar.google.com/calendar/embed?src=conejovalleyguide%40gmail.com&ctz=America%2FLos_Angeles)
+          - [Family](https://calendar.google.com/calendar/embed?src=YOUR_CALENDAR_ID%40group.calendar.google.com&ctz=America%2FLos_Angeles)
+
+          Times use **Pacific Time (Los Angeles)**. Use the calendar selector to show or hide individual sources.
+
+          Private calendars use your Google sign-in on this device. If family events are missing, open the source link and sign in with a Google account that can view that calendar.

@@ -1,0 +1,506 @@
+local_map: {}
+frontend:
+  extra_module_url:
+    - /local/local-map/local-map-card.js?v=4
+    - /local/local-map/overview-widgets.js?v=26
+lovelace:
+  dashboards:
+    family-calendar:
+      mode: yaml
+      title: Calendar
+      icon: mdi:calendar-month
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/family-calendar.yaml
+    local-map:
+      mode: yaml
+      title: Local Map
+      icon: mdi:map-search
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/local-map.yaml
+rest:
+  # Latest observation from NWS station TO (Thousand Oaks, Moorpark Rd), about
+  # a mile from home. Values are SI (°C, %, km/h); the card converts them.
+  - resource: https://api.weather.gov/stations/TO/observations/latest
+    headers:
+      User-Agent: HomeAssistant-LocalMap/1.0
+      Accept: application/geo+json
+    scan_interval: 600
+    timeout: 30
+    sensor:
+      - name: NWS Observation
+        unique_id: local_map_nws_observation
+        value_template: '{{ value_json.properties.temperature.value }}'
+        json_attributes_path: $.properties
+        json_attributes:
+          - timestamp
+          - textDescription
+          - temperature
+          - dewpoint
+          - relativeHumidity
+          - windSpeed
+          - windGust
+  # CAISO Today's Outlook feed (public, 5-minute data). State is the grid status.
+  - resource: https://www.caiso.com/outlook/current/stats.txt
+    scan_interval: 300
+    timeout: 30
+    sensor:
+      - name: CAISO Grid
+        unique_id: local_map_caiso_grid
+        value_template: "{{ value_json.gridstatus | join(', ') }}"
+        json_attributes:
+          - slotDate
+          - CurrentSystemDemand
+          - todayForecastPeakDemand
+          - todayForecastPeakDemandTS
+          - Current_reserve
+          - currentRenewables
+          - currentSolar
+          - currentWind
+          - currentGeothermal
+          - currentBiomass
+          - currentBiogas
+          - currentSmallHydro
+          - currentLargeHydro
+          - currentBatteries
+          - currentNuclear
+          - currentNaturalGas
+          - currentImports
+          - currentCoal
+          - currentOther
+  # Modelled (CAMS) values for the home point; unavailable when the request fails.
+  - resource: https://air-quality-api.open-meteo.com/v1/air-quality?latitude=@@HOME_LAT@@&longitude=@@HOME_LON@@&current=us_aqi,pm2_5,pm10,ozone,uv_index&timezone=America/Los_Angeles
+    scan_interval: 900
+    timeout: 30
+    sensor:
+      - name: Local Air Quality
+        unique_id: local_map_air_quality
+        device_class: aqi
+        value_template: '{{ value_json.current.us_aqi }}'
+        json_attributes_path: $.current
+        json_attributes:
+          - time
+          - pm2_5
+          - pm10
+          - ozone
+          - uv_index
+command_line:
+  # Vandenberg launches (Launch Library 2: 15 requests/hour without a key).
+  - sensor:
+      name: Vandenberg Launches
+      unique_id: local_map_vandenberg_launches
+      command: python3 /config/scripts/local-launches.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 75
+      scan_interval: 1800
+      value_template: "{{ value_json.count if value_json.status == 'ok' else 'unavailable' }}"
+      json_attributes:
+        - launches
+        - alert
+        - alert_at
+        - checked_at
+        - error
+  # Trash and sweeping dates for automations (port of household-schedule.mjs).
+  - sensor:
+      name: Household Schedule
+      unique_id: local_map_household_schedule
+      command: python3 /config/scripts/local-household.py
+      command_timeout: 15
+      scan_interval: 1800
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - today
+        - next_trash
+        - trash_holiday_delayed
+        - trash_tomorrow
+        - next_sweep
+        - sweep_verified
+        - sweep_tomorrow
+  - sensor:
+      name: Internet
+      unique_id: local_map_internet
+      command: python3 /config/scripts/local-net-status.py
+      command_timeout: 45
+      scan_interval: 1800
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - ping
+        - dns
+        - https
+        - checked_at
+  # Today's BabySteps entries and last bath, via HA's enrolled BabySteps device.
+  - sensor:
+      name: BabySteps Status
+      unique_id: local_map_babysteps_status
+      command: python3 /config/scripts/local-babysteps-today.py
+      command_timeout: 30
+      scan_interval: 600
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - child
+        - timezone
+        - events
+        - event_count
+        - last_bath
+        - days_since_bath
+        - lastFeed
+        - lastDiaper
+        - lastSleep
+        - crying_now
+        - last_cry
+        - cries_last_hour
+        - briefing
+        - checked_at
+        - error
+  # USGS M2.5+ within 50 miles; state is the last-24-hour count.
+  - sensor:
+      name: Earthquakes
+      unique_id: local_map_earthquakes
+      command: python3 /config/scripts/local-earthquakes.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 30
+      scan_interval: 600
+      value_template: "{{ value_json.count_24h if value_json.status == 'ok' else 'unavailable' }}"
+      state_class: measurement
+      json_attributes:
+        - quakes
+        - week_count
+        - largest_week
+        - alert
+        - checked_at
+        - error
+  - sensor:
+      name: Raspberry Pi
+      unique_id: local_map_system_status
+      command: python3 /config/scripts/local-system-status.py
+      command_timeout: 15
+      scan_interval: 1800
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - cpu_percent
+        - load
+        - cpu_count
+        - temperature_c
+        - memory_percent
+        - memory_available_mb
+        - memory_total_mb
+        - swap_percent
+        - disk_percent
+        - disk_free_gb
+        - uptime_hours
+        - undervoltage
+        - database_mb
+        - checked_at
+  # PurpleAir spends API points per sensor and field: 30 minutes, 2-mile box.
+  - sensor:
+      name: PurpleAir
+      unique_id: local_map_purpleair
+      command: python3 /config/scripts/local-purpleair.py @@HOME_LAT@@ @@HOME_LON@@ 2
+      command_timeout: 30
+      scan_interval: 1800
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - aqi
+        - pm25
+        - sensors
+        - checked_at
+        - error
+  - sensor:
+      name: Fire Incidents
+      unique_id: local_map_fire_incidents
+      command: python3 /config/scripts/local-fire-incidents.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 30
+      scan_interval: 600
+      # Active fires countywide; the Overview card shows only while this is above 0.
+      value_template: "{{ value_json.fires if value_json.status == 'ok' else 'unavailable' }}"
+      state_class: measurement
+      json_attributes:
+        - count
+        - fires
+        - incidents
+        - checked_at
+        - error
+  - sensor:
+      name: Freeway Conditions
+      unique_id: local_map_freeway_conditions
+      command: python3 /config/scripts/local-caltrans.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 60
+      scan_interval: 600
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - signs
+        - in_place
+        - scheduled
+        - scheduled_count
+        - cameras
+        - checked_at
+        - errors
+  # Traffic-aware Routes calls: 2 every 20 minutes stays under the monthly free tier.
+  - sensor:
+      name: Daytrip
+      unique_id: local_map_daytrip
+      command: python3 /config/scripts/local-daytrip.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 60
+      scan_interval: 1200
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - destinations
+        - checked_at
+  - sensor:
+      name: Local Gas Prices
+      unique_id: local_map_gas_prices
+      command: python3 /config/scripts/local-gas-prices.py @@HOME_LAT@@ @@HOME_LON@@ 5
+      command_timeout: 35
+      scan_interval: 3600
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - stations
+        - checked_at
+        - error
+  - sensor:
+      name: Local Weather Alerts
+      unique_id: local_map_weather_alerts
+      command: python3 /config/scripts/local-weather-status.py @@HOME_LAT@@ @@HOME_LON@@
+      command_timeout: 35
+      scan_interval: 600
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - count
+        - alerts
+        - checked_at
+        - error
+  - sensor:
+      name: Power shutoff
+      unique_id: local_map_power_shutoff
+      command: python3 /config/scripts/local-map-status.py @@PSPS_CIRCUIT@@
+      command_timeout: 45
+      scan_interval: 600
+      value_template: '{{ value_json.status }}'
+      json_attributes:
+        - circuit
+        - checked_at
+        - events
+        - error
+# Numeric twins of sensor.internet, so HA keeps long-term (hourly) statistics
+# beyond the 10-day history: the uptime sensor's mean is the share of time online.
+template:
+  - sensor:
+      - name: Internet Uptime
+        unique_id: local_map_internet_uptime
+        unit_of_measurement: '%'
+        state_class: measurement
+        availability: "{{ states('sensor.internet') in ['online', 'degraded', 'offline'] }}"
+        state: "{{ 0 if is_state('sensor.internet', 'offline') else 100 }}"
+      - name: Internet Latency
+        unique_id: local_map_internet_latency
+        unit_of_measurement: ms
+        device_class: duration
+        state_class: measurement
+        availability: >-
+          {% set p = state_attr('sensor.internet', 'ping') %}
+          {{ p is not none and (p.cloudflare.ms is not none or p.google.ms is not none) }}
+        state: >-
+          {% set p = state_attr('sensor.internet', 'ping') %}
+          {{ [p.cloudflare.ms, p.google.ms] | reject('none') | min }}
+automation:
+  # 10 minutes before a twilight or night launch (the ones visible from home).
+  # The 10-minute window keeps a restart after liftoff from announcing it late.
+  - id: local_map_launch_announcement
+    alias: Vandenberg launch announcement
+    triggers:
+      - trigger: template
+        value_template: >-
+          {% set at = state_attr('sensor.vandenberg_launches', 'alert_at') %}
+          {{ at is not none and as_datetime(at) <= now() < as_datetime(at) + timedelta(minutes=10) }}
+    conditions:
+      - condition: time
+        after: '05:00:00'
+        before: '21:00:00'
+    actions:
+      - variables:
+          launch: "{{ state_attr('sensor.vandenberg_launches', 'alert') }}"
+      - action: notify.mobile_app_tablet
+        data:
+          message: TTS
+          data:
+            media_stream: alarm_stream
+            tts_text: >-
+              Rocket launch from Vandenberg in about 10 minutes: {{ launch.rocket }}, {{ launch.mission }},
+              at {{ as_timestamp(launch.net) | timestamp_custom('%-I:%M %p') }}.
+              {% if launch.view == 'twilight' %}It's a twilight launch, so look west-northwest for a glowing plume lit by the sun.
+              {% else %}Look west-northwest for a bright point of light climbing and heading south.{% endif %}
+  # At sunset the evening before: bins out for trash day, street clear for sweeping.
+  - id: local_map_trash_sweeping_reminder
+    alias: Trash and street sweeping reminder
+    triggers:
+      - trigger: sun
+        event: sunset
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ state_attr('sensor.household_schedule', 'trash_tomorrow') or
+             state_attr('sensor.household_schedule', 'sweep_tomorrow') }}
+    actions:
+      - action: notify.mobile_app_tablet
+        data:
+          message: TTS
+          data:
+            media_stream: alarm_stream
+            tts_text: >-
+              {% if state_attr('sensor.household_schedule', 'trash_tomorrow') %}Trash pickup is tomorrow. Take the bins out to the curb tonight.{% endif %}
+              {% if state_attr('sensor.household_schedule', 'sweep_tomorrow') %}Street sweeping on @@HOME_STREET@@ is tomorrow, 7 AM to 7 PM. Check the driveway: move the cars off the street and keep the curb clear.{% endif %}
+  # Spoken on the tablet (alarm stream: plays with the screen off and on silent).
+  - id: local_map_evening_routine
+    alias: Evening routine reminders
+    mode: queued
+    triggers:
+      - trigger: time
+        at: '19:00:00'
+        id: bath
+      - trigger: time
+        at: '19:30:00'
+        id: dog
+      - trigger: time
+        at: '20:00:00'
+        id: bedtime
+    conditions:
+      # Bath only when BabySteps shows 3+ days since the last one.
+      - condition: template
+        value_template: >-
+          {{ trigger.id != 'bath' or (is_state('sensor.babysteps_status', 'ok') and
+             (state_attr('sensor.babysteps_status', 'days_since_bath') is none or
+              state_attr('sensor.babysteps_status', 'days_since_bath') | int >= 3)) }}
+    actions:
+      - action: notify.mobile_app_tablet
+        data:
+          message: TTS
+          data:
+            media_stream: alarm_stream
+            tts_text: >-
+              {% set name = state_attr('sensor.babysteps_status', 'child') or 'the baby' %}
+              {% set days = state_attr('sensor.babysteps_status', 'days_since_bath') %}
+              {% if trigger.id == 'bath' %}It's bath time for {{ name }}.{% if days is not none %} The last bath was {{ days }} days ago.{% endif %}
+              {% elif trigger.id == 'dog' %}Time to let the dog out.
+              {% else %}It's bedtime for {{ name }}.{% endif %}
+  - id: local_map_morning_baby_briefing
+    alias: 5 AM baby status
+    mode: single
+    triggers:
+      - trigger: time
+        at: '05:00:00'
+    actions:
+      # Fetch fresh BabySteps and nursery data rather than speak a 5-minute-old status.
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.babysteps_status
+      - delay: '00:00:20'
+      - action: weather.get_forecasts
+        continue_on_error: true
+        target:
+          entity_id: weather.forecast_home
+        data:
+          type: daily
+        response_variable: forecast
+      - action: notify.mobile_app_tablet
+        data:
+          message: TTS
+          data:
+            media_stream: alarm_stream
+            # Current temperature: the NWS station when its reading is under
+            # 90 minutes old, else Met.no. Hot 85+, warm 75+, mild 60+, else cold.
+            tts_text: >-
+              Good morning.
+              {% set days = (forecast | default({})).get('weather.forecast_home', {}).get('forecast', []) %}
+              {% set high = days[0].temperature if days else none %}
+              {% set seen = state_attr('sensor.nws_observation', 'timestamp') %}
+              {% set observed = states('sensor.nws_observation') | float(none) %}
+              {% set current = observed * 9 / 5 + 32 if observed is not none and seen and (now() - as_datetime(seen)).total_seconds() < 5400
+                 else state_attr('weather.forecast_home', 'temperature') %}
+              {% if high is not none %}Today will be {{ 'hot' if high >= 85 else 'warm' if high >= 75 else 'mild' if high >= 60 else 'cold' }}:
+              {% if current is not none %}{{ current | round(0) | int }} degrees now, with a high of {{ high | round(0) | int }}.{% else %}a high of {{ high | round(0) | int }}.{% endif %}{% endif %}
+              {% if is_state('sensor.babysteps_status', 'ok') %}{{ state_attr('sensor.babysteps_status', 'briefing') }}
+              {% else %}Baby status is unavailable; BabySteps could not be reached.{% endif %}
+              {# Active warnings, as the Overview shows them. #}
+              {% set alerts = (state_attr('sensor.local_weather_alerts', 'alerts') or []) | selectattr('event', 'defined') | list %}
+              {% if is_state('sensor.local_weather_alerts', 'active') and alerts %}Weather warning: {{ alerts | map(attribute='event') | unique | join(', ') }}.{% endif %}
+              {% if is_state('sensor.power_shutoff', 'power_shutoff') %}Power warning: SCE lists an active power shutoff on the @@PSPS_CIRCUIT@@ circuit.
+              {% elif is_state('sensor.power_shutoff', 'under_consideration') %}Power warning: SCE is considering a power shutoff on the @@PSPS_CIRCUIT@@ circuit.{% endif %}
+              {% if is_state('sensor.internet', 'offline') %}The internet is down.
+              {% elif is_state('sensor.internet', 'degraded') %}The internet connection is degraded.{% endif %}
+              {% set pi = states.sensor.raspberry_pi %}
+              {% if pi is none or pi.state != 'ok' %}The Raspberry Pi status is unavailable.
+              {% else %}{% set a = pi.attributes %}
+              {% if a.undervoltage %}The Raspberry Pi reports undervoltage; check its power supply.{% endif %}
+              {% if (a.temperature_c or 0) >= 80 %}The Raspberry Pi is hot, {{ a.temperature_c | round(0) | int }} degrees Celsius.{% endif %}
+              {% if (a.memory_percent or 0) >= 85 or (a.swap_percent or 0) >= 85 %}The Raspberry Pi is low on memory.{% endif %}
+              {% if (a.disk_percent or 0) >= 90 %}The Raspberry Pi's SD card is nearly full.{% endif %}{% endif %}
+  # Speak once per quake: `alert` is an M4.0+ within 50 miles from the last 30 minutes.
+  - id: local_map_earthquake_announcement
+    alias: Nearby earthquake announcement
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: sensor.earthquakes
+        attribute: alert
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set new = trigger.to_state.attributes.alert %}
+          {% set old = trigger.from_state.attributes.alert if trigger.from_state else none %}
+          {{ new is not none and (old is none or old.id != new.id) }}
+    actions:
+      - variables:
+          quake: '{{ trigger.to_state.attributes.alert }}'
+      # The tablet speaks through its own TTS engine (RHVoice) on the alarm
+      # stream, so it plays with the screen off and on silent. Quiet 9 PM–5 AM.
+      - if:
+          - condition: time
+            after: '05:00:00'
+            before: '21:00:00'
+        then:
+          - action: notify.mobile_app_tablet
+            continue_on_error: true
+            data:
+              message: TTS
+              data:
+                media_stream: alarm_stream
+                tts_text: >-
+                  Earthquake. Magnitude {{ quake.magnitude }}, {{ quake.miles | round(0) | int }} miles from home,
+                  {{ quake.place }}.
+      - action: persistent_notification.create
+        data:
+          notification_id: "earthquake_{{ quake.id }}"
+          title: "M{{ quake.magnitude }} earthquake, {{ quake.miles }} mi away"
+          message: "{{ quake.place }}. [USGS event page]({{ quake.url }})"
+  - id: local_map_power_shutoff_notification
+    alias: Power shutoff notification
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: sensor.power_shutoff
+        to: under_consideration
+      - trigger: state
+        entity_id: sensor.power_shutoff
+        to: power_shutoff
+      - trigger: state
+        entity_id: sensor.power_shutoff
+        to: no_psps_listed
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ states('sensor.power_shutoff') in ['under_consideration', 'power_shutoff'] or
+             (trigger.platform == 'state' and trigger.from_state is not none and
+              trigger.from_state.state in ['under_consideration', 'power_shutoff'] and
+              is_state('sensor.power_shutoff', 'no_psps_listed')) }}
+    actions:
+      - action: persistent_notification.create
+        data:
+          notification_id: power_shutoff
+          title: @@PSPS_CIRCUIT@@ — SCE power shutoff update
+          message: >-
+            {% set s = states('sensor.power_shutoff') %}
+            {% if s == 'power_shutoff' %}SCE lists an active PSPS on @@PSPS_CIRCUIT@@.
+            {% elif s == 'under_consideration' %}SCE is considering a PSPS on @@PSPS_CIRCUIT@@.
+            {% else %}SCE no longer lists a PSPS on @@PSPS_CIRCUIT@@.{% endif %}
+            Open Local Map for event details and the official SCE outage map.
+            Checked: {{ state_attr('sensor.power_shutoff', 'checked_at') }}.

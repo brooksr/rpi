@@ -1,0 +1,10 @@
+# Register the native recipe dashboard in the Home Assistant sidebar.
+lovelace:
+  dashboards:
+    family-recipes:
+      mode: yaml
+      title: Recipes
+      icon: mdi:book-open-page-variant
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/recipes.yaml

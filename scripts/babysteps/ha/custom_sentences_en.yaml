@@ -1,0 +1,165 @@
+# BabySteps voice sentences for Home Assistant Assist — installed by
+# scripts/babysteps/install.sh as /config/custom_sentences/en/babysteps.yaml.
+# Every sentence goes to one handler, BabyStepsLog (packages/babysteps.yaml):
+# `slots` fixes what kind of entry it is, and the {lists} catch the values.
+#
+# Amounts and names are wildcards so "2.5" survives; BabySteps validates the
+# value and Assist reads its reason back if it is not one. "for <name>" picks a
+# child when the family has more than one. It only ever comes last: a
+# name-shaped wildcard at the start would swallow "the baby" as a name. The
+# guide on the BabySteps Voice dashboard lists these — keep the two in step.
+language: "en"
+intents:
+  BabyStepsLog:
+    data:
+      # Bottle: "log 4 oz bottle", "baby drank 120 ml"
+      - sentences:
+          - "(add|log|record) [a] {amount} {unit} (feed|feeding|bottle) [for {child}]"
+          - "[the] baby (ate|drank|had) {amount} {unit}"
+        slots:
+          entry: feed
+
+      # Nursing: "log 20 minutes nursing left side", "log nursing 15 minutes"
+      - sentences:
+          - "(log|record) [a] {minutes} minute[s] [of] (nursing|breastfeeding|breast feeding) [on the] [{side} [side]] [for {child}]"
+          - "(log|record) (nursing|breastfeeding|breast feeding) [for] {minutes} minute[s] [on the] [{side} [side]] [for {child}]"
+        slots:
+          entry: feed
+          method: nursing
+
+      # Diaper: "log wet diaper", "log large dirty diaper", "log both diaper small"
+      - sentences:
+          - "(add|log|record) [a] [{poop_size}] {diaper_type} (diaper|nappy) [for {child}]"
+          - "(add|log|record) [a] {diaper_type} (diaper|nappy) {poop_size} [for {child}]"
+          - "(add|log|record) [a] (diaper|nappy) [that was] {diaper_type} [for {child}]"
+        slots:
+          entry: diaper
+
+      # Sleep: "baby slept for 45 minutes", "baby slept 1 hour and 20 minutes"
+      - sentences:
+          - "[the] baby slept [for] {minutes} minute[s]"
+          - "[the] baby slept [for] {hours} hour[s] [and {minutes} minute[s]]"
+          - "(add|log|record) [a] {minutes} minute (sleep|nap) [for {child}]"
+        slots:
+          entry: sleep
+
+      # Bath: "log bath", "baby had a bath"
+      - sentences:
+          - "(add|log|record) [a] bath [for {child}]"
+          - "[the] baby had a bath"
+        slots:
+          entry: bath
+
+      # Pump: "log 3 oz pumped", "log pump 90 ml right side"
+      - sentences:
+          - "(log|record) [a] {amount} {unit} (pump|pumped|pumping) [on the] [{side} [side]]"
+          - "(log|record) (pump|pumped|pumping) {amount} {unit} [on the] [{side} [side]]"
+          - "I pumped {amount} {unit} [on the] [{side} [side]]"
+        slots:
+          entry: pump
+
+      # Tummy time: "log 10 minutes tummy time", "log tummy time 15 minutes"
+      - sentences:
+          - "(log|record) {minutes} minute[s] [of] tummy time [for {child}]"
+          - "(log|record) tummy time [for] {minutes} minute[s] [for {child}]"
+        slots:
+          entry: tummytime
+
+      # Mood: "log mood fussy", "baby is happy"
+      - sentences:
+          - "(log|record) mood [as] {mood} [for {child}]"
+          - "[the] baby is {mood}"
+        slots:
+          entry: mood
+
+      # Note: "note rolled over for the first time"
+      - sentences:
+          - "(add|log|record|save) [a] note [that] {note}"
+          - "note [that] {note}"
+        slots:
+          entry: note
+      # Start now, finish in the app: "start nursing left side", "baby fell asleep"
+      - sentences:
+          - "start [a] bottle [for {child}]"
+        slots:
+          entry: feed
+          method: bottle
+          started: "true"
+      - sentences:
+          - "start (nursing|breastfeeding|breast feeding) [on the] [{side} [side]] [for {child}]"
+        slots:
+          entry: feed
+          method: nursing
+          started: "true"
+      - sentences:
+          - "start [a] (sleep|nap) [for {child}]"
+          - "[the] baby (fell asleep|is asleep|went down|is sleeping)"
+        slots:
+          entry: sleep
+          started: "true"
+      - sentences:
+          - "start (pumping|a pump|pump) [on the] [{side} [side]]"
+        slots:
+          entry: pump
+          started: "true"
+      - sentences:
+          - "start tummy time [for {child}]"
+        slots:
+          entry: tummytime
+          started: "true"
+lists:
+  amount:
+    wildcard: true
+  child:
+    wildcard: true
+  note:
+    wildcard: true
+  diaper_type:
+    values:
+      - "wet"
+      - "dirty"
+      - "both"
+      - in: "(poopy|poop)"
+        out: "dirty"
+      - in: "pee"
+        out: "wet"
+  poop_size:
+    values:
+      - in: "(small|little|tiny)"
+        out: "small"
+      - in: "(medium|normal)"
+        out: "medium"
+      - in: "(large|big|huge)"
+        out: "large"
+  side:
+    values:
+      - "left"
+      - "right"
+      - "both"
+  mood:
+    values:
+      - "content"
+      - "happy"
+      - "calm"
+      - "settled"
+      - in: "(alert|quiet alert)"
+        out: "alert"
+      - "fussy"
+      - "cranky"
+      - "crying"
+      - "upset"
+      - "inconsolable"
+  hours:
+    range:
+      from: 1
+      to: 16
+  minutes:
+    range:
+      from: 1
+      to: 960
+  unit:
+    values:
+      - in: "(oz|ounce|ounces)"
+        out: "oz"
+      - in: "(ml|mls|milliliter|milliliters|millilitre|millilitres)"
+        out: "ml"

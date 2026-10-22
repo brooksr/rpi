@@ -1,0 +1,19 @@
+.DS_Store
+__pycache__/
+*.pyc
+# Secrets live on the Pi only (events.env, broker.env, service-account.json).
+*.env
+.env*
+!.env.example
+service-account*.json
+
+# Recipe photos are downloaded, not versioned (scripts/recipes/fetch_images.py).
+scripts/recipes/images/
+
+# Personal data kept out of the public repo: the family calendar list and the
+# copied recipe book (build.py regenerates the dashboard from source.txt).
+scripts/local-map/calendar-dashboard.yaml
+scripts/recipes/source.txt
+scripts/recipes/recipes.json
+scripts/recipes/images.json
+scripts/recipes/dashboard.yaml

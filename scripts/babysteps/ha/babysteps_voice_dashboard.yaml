@@ -1,0 +1,116 @@
+# The "BabySteps" dashboard — installed by scripts/babysteps/install.sh as
+# /config/dashboards/babysteps_voice.yaml and registered in
+# packages/babysteps.yaml. Keep the phrase lists in step with
+# custom_sentences_en.yaml and google_assistant.yaml.
+#
+# HA's markdown card turns every newline into a visible line break, so each
+# paragraph and table row below is one line, however long.
+title: BabySteps
+views:
+  - title: BabySteps
+    path: home
+    icon: mdi:baby-carriage
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Log it now
+            icon: mdi:gesture-tap
+          - type: markdown
+            content: "Tap a tile to log it for the baby right now — it shows in BabySteps within a minute. Tiles always read **off**; that just means they are ready for the next one."
+          - { type: tile, entity: switch.babysteps_wet, name: Wet, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_dirty, name: Dirty, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_both, name: Both, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_dirty_small, name: Dirty S, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_dirty_medium, name: Dirty M, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_dirty_large, name: Dirty L, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_both_small, name: Both S, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_both_medium, name: Both M, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_both_large, name: Both L, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_bath, name: Bath, tap_action: { action: toggle }, grid_options: { columns: 6 } }
+          - { type: tile, entity: script.babysteps_log_feed, name: Bottle…, tap_action: { action: more-info }, grid_options: { columns: 6 } }
+          - type: markdown
+            content: "**Bottle…** asks for the amount. Nursing, sleep, pumping, tummy time, mood and notes are quickest to say — the phrases are below."
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Start now, finish later
+            icon: mdi:timer-play-outline
+          - type: markdown
+            content: "Logs it as starting now. When it's done, open the entry in BabySteps and add how long or how much — a sleep shows as *in progress*, a pump or tummy time as 0 until then."
+          - { type: tile, entity: switch.babysteps_start_bottle, name: Bottle, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_start_nursing, name: Nursing, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_start_sleep, name: Sleep, tap_action: { action: toggle }, grid_options: { columns: 4 } }
+          - { type: tile, entity: switch.babysteps_start_pump, name: Pump, tap_action: { action: toggle }, grid_options: { columns: 6 } }
+          - { type: tile, entity: switch.babysteps_start_tummy_time, name: Tummy time, tap_action: { action: toggle }, grid_options: { columns: 6 } }
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Talk to Home Assistant
+            icon: mdi:microphone
+          - type: markdown
+            content: |-
+              Open **Assist** — the speech-bubble button at the top right (or *Assist* in the app) — and type or dictate a phrase. It answers with what BabySteps saved, or why it didn't.
+
+              This Home Assistant has no speech recognition of its own (a Raspberry Pi 3 is too small to run one), so let the phone listen:
+
+              - **Any phone:** tap the Assist text box and use the **microphone on your keyboard**, then send.
+              - **iPhone, hands-free:** a Shortcut named **BabySteps** with *Dictate Text* → Home Assistant *Assist* (the dictated text) → *Speak Text* (the answer). Then: "Hey Siri, BabySteps", and the phrase.
+          - type: markdown
+            title: Say this to Assist
+            content: |-
+              Replace the *italic* values. Words in [brackets] are optional.
+
+              | To log | Say |
+              |---|---|
+              | Bottle | "log *4 oz* bottle" · "baby drank *120 ml*" |
+              | Nursing | "log *20* minutes nursing [*left* side]" · "log nursing *15* minutes" |
+              | Diaper | "log *wet* diaper" — wet, dirty or both |
+              | Poop size | "log *large* dirty diaper" · "log *small* both diaper" — small, medium or large |
+              | Sleep | "baby slept *45* minutes" · "baby slept *1* hour and *20* minutes" |
+              | Bath | "log bath" · "baby had a bath" |
+              | Pumping | "log *3 oz* pumped [*right* side]" · "I pumped *90 ml*" |
+              | Tummy time | "log *10* minutes tummy time" |
+              | Mood | "log mood *fussy*" · "baby is *happy*" |
+              | Note | "note *rolled over for the first time*" |
+
+              **Starting now, to finish in BabySteps later:**
+
+              | To start | Say |
+              |---|---|
+              | Bottle | "start bottle" |
+              | Nursing | "start nursing [*left* side]" |
+              | Sleep | "start sleep" · "baby fell asleep" |
+              | Pumping | "start pumping [*right* side]" |
+              | Tummy time | "start tummy time" |
+
+              With more than one child, end most phrases with "for *name*". Moods: content, happy, calm, settled, alert, fussy, cranky, crying, upset, inconsolable. Nursing, tummy time and sleep said with a length are logged as **just finished**.
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Talk to Google
+            icon: mdi:google-assistant
+          - type: markdown
+            content: |-
+              Google can only run fixed actions, and has to be told where: **"Hey Google, in Google Home run BabySteps** *action***"**.
+
+              | To log | Say "…run BabySteps" + |
+              |---|---|
+              | Wet diaper | wet |
+              | Dirty diaper | dirty |
+              | Wet and dirty | both |
+              | Dirty, by size | dirty small · dirty medium · dirty large |
+              | Both, by size | both small · both medium · both large |
+              | Bath | bath |
+              | Start a bottle | start bottle |
+              | Start nursing | start nursing |
+              | Start a sleep | start sleep |
+              | Start pumping | start pump |
+              | Start tummy time | start tummy time |
+
+              Plain *dirty* or *both* has no size, and BabySteps counts it as medium. Amounts, minutes, moods and notes need Assist. After an action is added or renamed, say "Hey Google, sync my devices" once.
