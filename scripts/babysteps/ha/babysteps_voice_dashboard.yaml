@@ -13,6 +13,23 @@ views:
     type: sections
     max_columns: 2
     sections:
+      # The laptop's webcam and microphone (scripts/cameras); the card itself
+      # comes from scripts/local-map/overview-widgets.js.
+      # Full width: the video spans both columns of the view.
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Baby monitor
+            icon: mdi:baby-face-outline
+          - type: custom:baby-monitor-card
+            grid_options: { columns: full }
+          # Sleep, movement and crying from the analyzer (scripts/cameras/analyzer).
+          - type: custom:baby-sleep-card
+            hide_title: true
+            grid_options: { columns: full }
+          - { type: tile, entity: switch.baby_monitoring, name: Sleep tracking, icon: mdi:sleep, tap_action: { action: toggle }, grid_options: { columns: 6 } }
+
       - type: grid
         cards:
           - type: heading

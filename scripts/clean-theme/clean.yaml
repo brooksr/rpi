@@ -1,0 +1,105 @@
+# Clean: neutral surfaces, one blue accent, system fonts, borders instead of shadows.
+Clean:
+  # Type: the device's own UI font (SF on Apple, Segoe on Windows, Roboto on Android).
+  ha-font-family-body: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+  ha-font-family-heading: var(--ha-font-family-body)
+  primary-font-family: var(--ha-font-family-body)
+  paper-font-common-base_-_font-family: var(--ha-font-family-body)
+  ha-font-smoothing: antialiased
+  ha-card-header-font-family: var(--ha-font-family-heading)
+  ha-card-header-font-size: 18px
+
+  # Shape: soft corners, flat cards with a hairline border.
+  ha-card-border-radius: 16px
+  ha-card-border-width: 1px
+  ha-card-box-shadow: none
+  ha-dialog-border-radius: 20px
+
+  # Accent scale (05 darkest, 95 lightest).
+  ha-color-primary-05: "#0a1633"
+  ha-color-primary-10: "#102452"
+  ha-color-primary-20: "#1a3a7f"
+  ha-color-primary-30: "#1e4fb0"
+  ha-color-primary-40: "#2563eb"
+  ha-color-primary-50: "#3b82f6"
+  ha-color-primary-60: "#60a5fa"
+  ha-color-primary-70: "#93c5fd"
+  ha-color-primary-80: "#bfdbfe"
+  ha-color-primary-90: "#dbeafe"
+  ha-color-primary-95: "#eff6ff"
+
+  modes:
+    light:
+      primary-color: "#2563eb"
+      rgb-primary-color: 37, 99, 235
+      accent-color: "#2563eb"
+      rgb-accent-color: 37, 99, 235
+      primary-background-color: "#f4f5f7"
+      secondary-background-color: "#eceef2"
+      lovelace-background: "#f4f5f7"
+      card-background-color: "#ffffff"
+      ha-card-background: "#ffffff"
+      ha-card-border-color: "#e3e6eb"
+      divider-color: "#e3e6eb"
+      primary-text-color: "#111827"
+      rgb-primary-text-color: 17, 24, 39
+      secondary-text-color: "#566070"
+      disabled-text-color: "#9aa1ad"
+      text-primary-color: "#ffffff"
+      ha-card-header-color: "#111827"
+      ha-color-text-primary: "#111827"
+      ha-color-text-secondary: "#566070"
+      ha-color-text-link: "#1d4ed8"
+      ha-color-surface-default: "#ffffff"
+      ha-color-surface-low: "#f4f5f7"
+      ha-color-surface-lower: "#eceef2"
+      state-icon-color: "#566070"
+      app-header-background-color: "#f4f5f7"
+      app-header-text-color: "#111827"
+      app-header-border-bottom: 1px solid #e3e6eb
+      sidebar-background-color: "#ffffff"
+      sidebar-text-color: "#374151"
+      sidebar-icon-color: "#6b7280"
+      sidebar-selected-text-color: "#1d4ed8"
+      sidebar-selected-icon-color: "#2563eb"
+      input-fill-color: "#f4f5f7"
+      code-editor-background-color: "#f4f5f7"
+      switch-checked-color: "#2563eb"
+      slider-color: "#2563eb"
+    dark:
+      primary-color: "#6ea8fe"
+      rgb-primary-color: 110, 168, 254
+      accent-color: "#6ea8fe"
+      rgb-accent-color: 110, 168, 254
+      primary-background-color: "#0f1115"
+      secondary-background-color: "#15181d"
+      lovelace-background: "#0f1115"
+      card-background-color: "#181b21"
+      ha-card-background: "#181b21"
+      ha-card-border-color: "#2a2f37"
+      divider-color: "#2a2f37"
+      primary-text-color: "#eceef1"
+      rgb-primary-text-color: 236, 238, 241
+      secondary-text-color: "#a3aab5"
+      disabled-text-color: "#6b7280"
+      text-primary-color: "#0f1115"
+      ha-card-header-color: "#eceef1"
+      ha-color-text-primary: "#eceef1"
+      ha-color-text-secondary: "#a3aab5"
+      ha-color-text-link: "#93c5fd"
+      ha-color-surface-default: "#181b21"
+      ha-color-surface-low: "#15181d"
+      ha-color-surface-lower: "#0f1115"
+      state-icon-color: "#a3aab5"
+      app-header-background-color: "#0f1115"
+      app-header-text-color: "#eceef1"
+      app-header-border-bottom: 1px solid #2a2f37
+      sidebar-background-color: "#13161b"
+      sidebar-text-color: "#cbd0d8"
+      sidebar-icon-color: "#8b93a0"
+      sidebar-selected-text-color: "#93c5fd"
+      sidebar-selected-icon-color: "#6ea8fe"
+      input-fill-color: "#20242b"
+      code-editor-background-color: "#15181d"
+      switch-checked-color: "#6ea8fe"
+      slider-color: "#6ea8fe"

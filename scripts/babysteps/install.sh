@@ -39,14 +39,26 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "${HERE}/../config.sh"
 SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${PI_TARGET}")
+HA_SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${HA_TARGET}")
 
+# Since the cutover the Pi runs BabySteps' internal backend, deployed from the
+# baby-steps repo (deployment/internal/deploy-pi.sh). Steps 1-5 would put back
+# the legacy nginx.conf, the update.sh cron (which swaps the site back to the
+# legacy build) and the Sheets writers, so only the Home Assistant step runs.
+if "${SSH[@]}" 'test -e ~/babysteps/internal/cutover-complete'; then
+  echo "== 1-5/6 skipped: the Pi has cut over to the internal backend (deploy it from the baby-steps repo) =="
+  legacy=0
+else
+  legacy=1
+fi
+
+if [ "${legacy}" = 1 ]; then
 echo "== 1/6 Copying files to the Pi =="
-"${SSH[@]}" 'mkdir -p ~/babysteps/www/releases ~/babysteps/broker ~/babysteps/events ~/babysteps/ha'
+"${SSH[@]}" 'mkdir -p ~/babysteps/www/releases ~/babysteps/broker ~/babysteps/events'
 if [ -n "${BABYSTEPS_TAG:-}" ]; then
   "${SSH[@]}" "echo '${BABYSTEPS_TAG}' > ~/babysteps/release-tag"
 fi
 scp -q "${SSH_OPTS_BATCH[@]}" "${HERE}/update.sh" "${HERE}/nginx.conf" "${PI_TARGET}:babysteps/"
-scp -q "${SSH_OPTS_BATCH[@]}" "${HERE}/ha/babysteps.yaml" "${HERE}/ha/custom_sentences_en.yaml" "${HERE}/ha/google_assistant.yaml" "${HERE}/ha/babysteps_voice_dashboard.yaml" "${PI_TARGET}:babysteps/ha/"
 
 echo "== 2/6 Installing the newest CI build + cron job =="
 "${SSH[@]}" bash -s <<'EOF'
@@ -154,9 +166,15 @@ else
   docker logs babysteps-events 2>&1 | tail -n 2 | sed 's/^/   /'
 fi
 EOF
+fi
 
-echo "== 6/6 Adding the BabySteps dashboard and voice logging to Home Assistant =="
-"${SSH[@]}" bash -s <<'EOF'
+echo "== 6/6 Adding the BabySteps dashboard and voice logging to Home Assistant (${HA_HOST}) =="
+"${HA_SSH[@]}" 'mkdir -p ~/babysteps/ha'
+scp -q "${SSH_OPTS_BATCH[@]}" "${HERE}/ha/babysteps.yaml" "${HERE}/ha/custom_sentences_en.yaml" "${HERE}/ha/google_assistant.yaml" "${HERE}/ha/babysteps_voice_dashboard.yaml" "${HA_TARGET}:babysteps/ha/"
+# The events token lives on the Pi; HA may be on another host, so it travels
+# in on stdin rather than on a command line.
+token="$("${SSH[@]}" "sed -n 's/^EVENTS_API_TOKEN=//p' ~/babysteps/events.env 2>/dev/null || true")"
+{ printf 'token=%q\n' "${token}"; cat <<'EOF'; } | "${HA_SSH[@]}" bash -s
 set -euo pipefail
 # configuration.yaml belongs to root (HA wrote it), so edit it from inside the
 # container rather than asking for sudo. HA restarts once at the end, and only
@@ -224,9 +242,9 @@ else
   echo "   Google Home: skipped until secrets.yaml has google_assistant_project_id (see README)"
 fi
 
-# The token HA sends comes from the events API's own env file, so there is one
-# source of truth and a re-run can never leave the two disagreeing.
-token="$(sed -n 's/^EVENTS_API_TOKEN=//p' "$HOME/babysteps/events.env" 2>/dev/null || true)"
+# The token HA sends comes from the events API's own env file on the Pi (read
+# above), so there is one source of truth and a re-run can never leave the two
+# disagreeing.
 secrets=/config/secrets.yaml
 line="babysteps_events_auth: \"Bearer ${token}\""
 if [ -z "$token" ]; then
@@ -258,7 +276,7 @@ fi
 EOF
 
 echo
-echo "✅ BabySteps: http://${PI_HOST}:8080/   ·   in Home Assistant: http://${PI_HOST}:8123/baby-steps"
+echo "✅ BabySteps: http://${PI_HOST}:8080/   ·   in Home Assistant: http://${HA_HOST}:8123/baby-steps"
 echo "   Update log on the Pi: ~/babysteps/update.log"
 echo "   Events API: curl https://${TAILNET_HOST}:8443/api/events/health"
 echo "   Nursery phone: https://${TAILNET_HOST}:8443/api/nursery with NURSERY_API_TOKEN from ~/babysteps/events.env"

@@ -1,0 +1,52 @@
+# Home observer. The home-agent service on this laptop (scripts/home-agent)
+# writes /config/.home-agent.json every minute: current findings, a short
+# local-AI note and the daily cloud digest. Shown on the Jarvis page.
+command_line:
+  - sensor:
+      name: Home Agent
+      unique_id: home_agent
+      icon: mdi:home-search
+      command: cat /config/.home-agent.json
+      scan_interval: 60
+      # Unavailable when the service has stopped writing (a slow Qwen note can take ~4 min).
+      value_template: >-
+        {% set age = as_timestamp(now()) - as_timestamp(value_json.checked_at | default(none), 0) %}
+        {{ value_json.findings | count if value_json.status == 'ok' and age < 600 else 'unavailable' }}
+      json_attributes:
+        - findings
+        - note
+        - digest
+        - sky
+        - errors
+
+input_button:
+  home_agent_note:
+    name: Home observer refresh
+    icon: mdi:refresh
+  home_agent_digest:
+    name: Home observer digest
+    icon: mdi:creation
+
+automation:
+  - id: home_agent_question
+    alias: Home observer question
+    mode: parallel
+    triggers:
+      - trigger: conversation
+        command:
+          - "[is there] anything unusual [at home|in the house|today|right now]"
+          - "(what is|what's) unusual [at home|in the house|today|right now]"
+          - "(what does|what's) the [home] observer (say|saying|think)"
+    actions:
+      - set_conversation_response: >-
+          {% set note = state_attr('sensor.home_agent', 'note') %}
+          {% set findings = state_attr('sensor.home_agent', 'findings') or [] %}
+          {% if states('sensor.home_agent') in ['unavailable', 'unknown'] %}
+            The home observer isn't running right now.
+          {% elif not findings %}
+            Nothing unusual right now.
+          {% elif note and note.source == 'qwen' %}
+            {{ note.text }}
+          {% else %}
+            {{ findings | map(attribute='title') | join(', ') }}.
+          {% endif %}

@@ -1,0 +1,7 @@
+[Unit]
+Description=Save an office window camera snapshot
+
+[Service]
+Type=oneshot
+User=@@HA_USER@@
+ExecStart=/home/@@HA_USER@@/go2rtc/snapshot.sh

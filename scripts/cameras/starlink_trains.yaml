@@ -1,0 +1,44 @@
+# Visible Starlink train passes over home. ~/go2rtc/launch_recorder.py (host
+# service office-camera-launches) predicts them from CelesTrak orbits every
+# 10 minutes into /config/.starlink-trains.json and records each one on the
+# office window camera (Media: office-camera/starlink).
+command_line:
+  - sensor:
+      name: Starlink Trains
+      unique_id: starlink_trains
+      command: cat /config/.starlink-trains.json
+      scan_interval: 300
+      value_template: "{{ value_json.count if value_json.status == 'ok' else 'unavailable' }}"
+      json_attributes:
+        - passes
+        - trains
+        - alert
+        - alert_at
+        - checked_at
+        - error
+automation:
+  # 5 minutes before the next visible pass, like the Vandenberg launch announcement.
+  - id: starlink_train_announcement
+    alias: Starlink train announcement
+    triggers:
+      - trigger: template
+        value_template: >-
+          {% set at = state_attr('sensor.starlink_trains', 'alert_at') %}
+          {{ at is not none and as_datetime(at) <= now() < as_datetime(at) + timedelta(minutes=5) }}
+    conditions:
+      - condition: time
+        after: '05:00:00'
+        before: '21:00:00'
+    actions:
+      - variables:
+          pass: "{{ state_attr('sensor.starlink_trains', 'alert') }}"
+      - action: notify.mobile_app_tablet
+        data:
+          message: TTS
+          data:
+            media_stream: alarm_stream
+            tts_text: >-
+              A Starlink satellite train passes over in about 5 minutes, at
+              {{ as_timestamp(pass.start) | timestamp_custom('%-I:%M %p') }}.
+              Look {{ pass.start_direction }}: a line of moving dots climbs to {{ pass.max_elevation }} degrees
+              in the {{ pass.peak_direction }} and fades toward the {{ pass.end_direction }}.

@@ -3,7 +3,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "${HERE}/../config.sh"
-SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${PI_TARGET}")
+SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${HA_TARGET}")
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ha-lcars.XXXXXX")"
 echo "Staging release files in ${STAGE}"
 curl -fsSL https://api.github.com/repos/th3jesta/ha-lcars/tarball/HA-LCARS-4.1.3 -o "${STAGE}/lcars.tar.gz"

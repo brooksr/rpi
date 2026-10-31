@@ -3,7 +3,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "${HERE}/../config.sh"
-SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${PI_TARGET}")
+SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${HA_TARGET}")
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ha-local-map.XXXXXX")"
 mkdir -p "${STAGE}/www/local-map/vendor" "${STAGE}/packages" "${STAGE}/dashboards" "${STAGE}/scripts"
 mkdir -p "${STAGE}/custom_components/local_map"
@@ -33,6 +33,22 @@ cp "${HERE}/household.py" "${STAGE}/scripts/local-household.py"
 cp "${HERE}/launches.py" "${STAGE}/scripts/local-launches.py"
 python3 "${HERE}/../render_env.py" "${STAGE}"
 "${SSH[@]}" 'docker exec homeassistant test -d /config/packages'
+# The Pi posts its health to a webhook whose id is in secrets.yaml. package.yaml
+# refers to it, so it has to exist before the config check below.
+webhook="$("${SSH[@]}" "docker exec -i homeassistant python3 -c '
+import pathlib, re, secrets, shutil, time
+path = pathlib.Path(\"/config/secrets.yaml\")
+text = path.read_text() if path.exists() else \"\"
+found = re.search(r\"^pi_health_webhook: *(\\S+)\", text, re.M)
+if not found:
+    if path.exists():
+        shutil.copy(path, f\"{path}.bak-{time.strftime(\"%Y%m%d%H%M%S\")}\")
+    value = secrets.token_hex(16)
+    path.write_text(text + (\"\" if text.endswith(\"\\n\") or not text else \"\\n\") + f\"pi_health_webhook: {value}\\n\")
+    print(value)
+else:
+    print(found.group(1))
+'")"
 tar -C "${STAGE}" -cf - . | "${SSH[@]}" "docker exec -i homeassistant python3 -c '
 import datetime, pathlib, subprocess, sys, tarfile
 root = pathlib.Path(\"/config\")
@@ -83,4 +99,26 @@ if changed:
 if "${SSH[@]}" 'docker exec homeassistant test -f /config/.local-map-restart'; then
   "${SSH[@]}" 'docker exec homeassistant python3 -c '\''from pathlib import Path; Path("/config/.local-map-restart").unlink()'\''; docker restart -t 60 homeassistant'
 fi
-echo "Local Map installed: http://${PI_HOST}:8123/local-map/conditions"
+
+# With HA on another host, the Pi reports its own health: cron runs the same
+# status script there every 10 minutes and posts it to HA (Device Health card).
+PI_SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${PI_TARGET}")
+if [ "${HA_HOST}" != "${PI_HOST}" ]; then
+  "${PI_SSH[@]}" 'mkdir -p ~/pi-health && chmod 700 ~/pi-health'
+  scp -q "${SSH_OPTS_BATCH[@]}" "${HERE}/system_status.py" "${PI_TARGET}:pi-health/system_status.py"
+  printf 'http://%s:8123/api/webhook/%s\n' "${HA_HOST}" "${webhook}" | "${PI_SSH[@]}" 'umask 077; cat > ~/pi-health/webhook-url'
+  "${PI_SSH[@]}" bash -s <<'EOF'
+set -euo pipefail
+push='python3 $HOME/pi-health/system_status.py | curl -fsS -m 20 -H "Content-Type: application/json" --data-binary @- "$(cat $HOME/pi-health/webhook-url)" >/dev/null 2>>$HOME/pi-health/push.log'
+{ crontab -l 2>/dev/null | grep -v 'pi-health/system_status.py' || true; echo "*/10 * * * * ${push}"; } | crontab -
+# First reading now, once HA is back from any restart above.
+url="$(cat ~/pi-health/webhook-url)"
+for _ in $(seq 1 30); do curl -fs -m 5 -o /dev/null "${url%/api/webhook/*}/manifest.json" && break; sleep 3; done
+# The webhook registers a little after the frontend answers; cron retries anyway.
+for _ in $(seq 1 20); do eval "${push}" 2>/dev/null && break; sleep 3; done
+EOF
+  echo "Pi health: posted from ${PI_HOST} every 10 minutes"
+else
+  "${PI_SSH[@]}" "{ crontab -l 2>/dev/null | grep -v 'pi-health/system_status.py' || true; } | crontab -"
+fi
+echo "Local Map installed: http://${HA_HOST}:8123/local-map/conditions"

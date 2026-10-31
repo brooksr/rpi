@@ -1,0 +1,23 @@
+services:
+  music-assistant:
+    image: ghcr.io/music-assistant/server:latest
+    container_name: music-assistant
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      LOG_LEVEL: info
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  ytmusic-po:
+    image: brainicism/bgutil-ytdlp-pot-provider:1.2.1
+    container_name: ytmusic-po
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:4416:4416"
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

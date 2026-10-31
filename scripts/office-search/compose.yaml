@@ -1,0 +1,31 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: office-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-data:/var/cache/searxng
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  search-tool:
+    build: .
+    container_name: office-search-tool
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9123:8000"
+    environment:
+      SEARXNG_URL: http://searxng:8080
+    depends_on:
+      - searxng
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+volumes:
+  searxng-data:

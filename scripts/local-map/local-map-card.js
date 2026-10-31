@@ -61,7 +61,7 @@ class LocalMapCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="${ROOT}/vendor/leaflet.css">
       <style>
-        :host{display:block;height:100%;min-height:0;min-width:0;color:var(--primary-text-color,#f4f0e9);container:local-map / inline-size}
+        :host{display:block;height:calc(100dvh - var(--header-height,56px) - env(safe-area-inset-top,0px));min-height:0;min-width:0;color:var(--primary-text-color,#f4f0e9);container:local-map / inline-size}
         *{box-sizing:border-box}ha-card{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--ha-card-background,var(--card-background-color,#12161c));overflow:hidden}
         header{display:flex;flex:none;gap:20px;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #ffffff24}
         h1{font-size:28px;margin:0;font-weight:600} .eyebrow{color:var(--primary-color,#ffb56b);font-size:13px;letter-spacing:2px;margin-bottom:4px}

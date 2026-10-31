@@ -1,0 +1,47 @@
+# Home Assistant package. Office is the default music destination.
+# Sentence triggers run before the AI agent, whose tool-enabled fallback
+# currently skips the built-in search-and-play intent.
+automation:
+  - id: office_voice_music
+    alias: Office voice music
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: conversation
+        command:
+          - "play {office_music} on [the] office"
+          - "play {office_music} in [the] office"
+          - "play {office_music}"
+    actions:
+      - variables:
+          request: >-
+            {{ trigger.slots.office_music | regex_replace('(?i)\\s+(on|in)\\s+(the\\s+)?office$', '') | trim }}
+      - variables:
+          music_type: >-
+            {% set words = request | lower | regex_replace('^the\\s+', '') %}
+            {% set first = words.split(' ')[0] %}
+            {{ {'song': 'track', 'track': 'track', 'playlist': 'playlist', 'album': 'album', 'artist': 'artist', 'radio': 'radio'}.get(first, 'track') }}
+          music_query: >-
+            {{ request | regex_replace('(?i)^(the\\s+)?(song|track|playlist|album|artist|radio)\\s+', '') | trim }}
+      - action: music_assistant.play_media
+        target:
+          entity_id: media_player.office
+        data:
+          media_id: "{{ music_query }}"
+          media_type: "{{ music_type }}"
+          enqueue: replace
+      - set_conversation_response: "Playing {{ music_query }} on Office."
+  - id: office_voice_music_pause
+    alias: Office voice music pause
+    mode: single
+    triggers:
+      - trigger: conversation
+        command:
+          - "(pause|stop) [the] music [on [the] office]"
+          - "(pause|stop) [the] office"
+          - "pause"
+    actions:
+      - action: media_player.media_pause
+        target:
+          entity_id: media_player.office
+      - set_conversation_response: "Music paused."

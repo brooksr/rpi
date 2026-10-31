@@ -1,4 +1,4 @@
-"""Internet health from the Pi: router and internet latency/loss, DNS through
+"""Internet health from the HA host: router and internet latency/loss, DNS through
 Pi-hole and the router, and an HTTPS round trip. State: online, degraded or
 offline (offline only when no internet target answers at all)."""
 import datetime
@@ -10,7 +10,8 @@ import urllib.request
 
 GATEWAY = '@@GATEWAY@@'  # filled from .env by install.sh
 PINGS = {'router': GATEWAY, 'cloudflare': '1.1.1.1', 'google': '8.8.8.8'}
-DNS = {'pihole': '127.0.0.1', 'router': GATEWAY}
+PIHOLE = '@@PI_IP_ETH@@'  # Pi-hole's LAN address; HA may run on another host
+DNS = {'pihole': PIHOLE, 'router': GATEWAY}
 SLOW_MS, LOSSY_PERCENT = 150, 10
 
 

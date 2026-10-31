@@ -1,0 +1,14 @@
+[Unit]
+Description=Record the office window camera around Vandenberg launches and Starlink trains
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=@@HA_USER@@
+EnvironmentFile=/home/@@HA_USER@@/go2rtc/home.env
+ExecStart=/usr/bin/python3 -u /home/@@HA_USER@@/go2rtc/launch_recorder.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

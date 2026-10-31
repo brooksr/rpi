@@ -1,0 +1,46 @@
+services:
+  go2rtc-capture:
+    image: alexxit/go2rtc:1.9.14-hardware
+    container_name: go2rtc-capture
+    restart: unless-stopped
+    network_mode: host
+    command: ["go2rtc", "-config", "/config/capture.yaml"]
+    volumes:
+      - ./capture.yaml:/config/capture.yaml
+      - /dev:/dev
+    device_cgroup_rules:
+      - "c 81:* rmw"   # video4linux
+      - "c 116:* rmw"  # ALSA, the baby monitor microphone
+      - "c 226:* rmw"  # Intel GPU, for VAAPI H.264 encoding
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14-hardware
+    container_name: go2rtc
+    restart: unless-stopped
+    network_mode: host
+    devices:
+      - /dev/dri:/dev/dri   # VAAPI for the office camera transcode
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  baby-monitor-analyzer:
+    build: ./analyzer
+    image: baby-monitor-analyzer:local
+    container_name: baby-monitor-analyzer
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: America/Los_Angeles
+      # Crib area (left, top, right, bottom fractions); see README.
+      BABY_ROI: "0,0,1,1"
+    volumes:
+      - ./analyzer-data:/data
+      - /proc/acpi/button/lid/LID:/host/lid:ro
+    cpus: 2
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

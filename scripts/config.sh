@@ -42,3 +42,11 @@ SSH_OPTS_BATCH=("${SSH_OPTS[@]}" -o BatchMode=yes)
 
 # Convenience: the user@host target, honoring overrides.
 PI_TARGET="${PI_USER}@${PI_HOST}"
+
+# ---- Home Assistant host ----------------------------------------------------
+# HA can run on its own server while Pi-hole and BabySteps stay on the Pi. The
+# HA installers (local-map, lcars, recipes, BabySteps' HA step) target this;
+# unset, it is the Pi.
+HA_USER="${HA_USER:-$PI_USER}"
+HA_HOST="${HA_HOST:-$PI_HOST}"
+HA_TARGET="${HA_USER}@${HA_HOST}"

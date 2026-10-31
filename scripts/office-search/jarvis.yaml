@@ -1,0 +1,200 @@
+lovelace:
+  dashboards:
+    jarvis-guide:
+      mode: yaml
+      title: Jarvis
+      icon: mdi:microphone-message
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/jarvis.yaml
+
+input_number:
+  jarvis_feed_interval_hours:
+    name: Feed routine interval
+    min: 0.5
+    max: 12
+    step: 0.5
+    unit_of_measurement: h
+    mode: box
+    icon: mdi:baby-bottle
+  jarvis_diaper_interval_hours:
+    name: Diaper routine interval
+    min: 0.5
+    max: 12
+    step: 0.5
+    unit_of_measurement: h
+    mode: box
+    icon: mdi:human-baby-changing-table
+  jarvis_morning_song_volume:
+    # A new helper starts at min; 0 means "not set yet" and plays at 40%.
+    name: Song volume
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:volume-medium
+
+input_text:
+  jarvis_morning_song:
+    name: Song after the briefing
+    max: 120
+    icon: mdi:music-note
+
+template:
+  - triggers:
+      - trigger: event
+        event_type: jarvis_briefing_ready
+    sensor:
+      - name: Jarvis latest briefing
+        unique_id: jarvis_latest_briefing
+        state: "{{ now().isoformat() }}"
+        device_class: timestamp
+        attributes:
+          message: "{{ trigger.event.data.message }}"
+
+script:
+  jarvis_morning_briefing:
+    alias: Jarvis morning briefing
+    description: Refresh and preview the briefing; optionally speak on Office and the tablet.
+    icon: mdi:weather-sunset-up
+    mode: single
+    max_exceeded: silent
+    fields:
+      speak:
+        name: Speak on Office
+        default: true
+        selector:
+          boolean:
+      include_tablet:
+        name: Also speak on the tablet
+        default: false
+        selector:
+          boolean:
+      play_song:
+        name: Play a song on Office afterwards
+        default: true
+        selector:
+          boolean:
+    sequence:
+      - action: homeassistant.update_entity
+        continue_on_error: true
+        target:
+          entity_id:
+            - sensor.babysteps_status
+            - sensor.local_weather_alerts
+            - sensor.power_shutoff
+            - weather.forecast_home
+      - action: weather.get_forecasts
+        continue_on_error: true
+        target:
+          entity_id: weather.forecast_home
+        data:
+          type: daily
+        response_variable: forecast
+      - action: shell_command.office_dashboard_briefing
+        data:
+          payload: >-
+            {% set ids = ['weather.forecast_home', 'sensor.nws_observation',
+                'sensor.babysteps_status', 'sensor.local_weather_alerts', 'sensor.power_shutoff',
+                'sensor.internet', 'sensor.raspberry_pi', 'sensor.pi_health'] %}
+            {% set ns = namespace(sensors={}) %}
+            {% for id in ids %}
+              {% set entity = states[id] %}
+              {% if entity is not none %}
+                {% set ns.sensors = dict(ns.sensors, **{id: dict(state=entity.state, attributes=dict(entity.attributes))}) %}
+              {% endif %}
+            {% endfor %}
+            {{ dict(topic='morning', sensors=ns.sensors, forecast=forecast | default({}),
+                intervals=dict(feed=states('input_number.jarvis_feed_interval_hours') | float(3),
+                diaper=states('input_number.jarvis_diaper_interval_hours') | float(3))) }}
+        response_variable: briefing
+      - variables:
+          message: "{{ briefing.stdout | trim if briefing.returncode == 0 else 'Good morning. The briefing data is unavailable right now.' }}"
+      - event: jarvis_briefing_ready
+        event_data:
+          message: "{{ message }}"
+      - if: "{{ speak | default(true) | bool }}"
+        then:
+          - action: music_assistant.play_announcement
+            continue_on_error: true
+            target:
+              entity_id: media_player.office
+            data:
+              message: "{{ message }}"
+              tts_entity_id: tts.piper
+              use_pre_announce: false
+              # Speak at whatever volume Office/EchoMuse is already set to.
+              announce_volume: "{{ ((state_attr('media_player.office', 'volume_level') or 0.6) * 100) | round | int }}"
+          - if: "{{ play_song | default(true) | bool }}"
+            then:
+              # The announcement shows Office as playing; start the song once it ends.
+              - wait_template: "{{ not is_state('media_player.office', 'playing') }}"
+                timeout: "00:02:00"
+              # Runs on its own so this script finishes while the song plays.
+              - action: script.turn_on
+                target:
+                  entity_id: script.jarvis_morning_song
+      - if: "{{ include_tablet | default(false) | bool }}"
+        then:
+          - action: notify.mobile_app_tablet
+            data:
+              message: TTS
+              data:
+                media_stream: alarm_stream
+                tts_text: "{{ message }}"
+
+  jarvis_morning_song:
+    alias: Jarvis song after the briefing
+    description: Play one song on Office at the song volume, then put Office's volume back.
+    icon: mdi:music-note
+    mode: restart
+    sequence:
+      - variables:
+          previous_volume: "{{ state_attr('media_player.office', 'volume_level') }}"
+          song_volume: >-
+            {% set v = states('input_number.jarvis_morning_song_volume') | float(0) %}
+            {{ (v if v > 0 else 40) / 100 }}
+          # Upbeat, relaxed lofi, one per weekday (Monday first).
+          rotation:
+            - Feather - Nujabes
+            - Affection - Jinsang
+            - Flowers - In Love With A Ghost
+            - Snowman - WYS
+            - Sunset Lover - Petit Biscuit
+            - bread - lukrembo
+            - Aruarian Dance - Nujabes
+          # "Title - Artist" in the box overrides the rotation; empty or not yet set uses it.
+          request: >-
+            {% set text = states('input_text.jarvis_morning_song') | trim %}
+            {{ rotation[now().weekday()] if text in ['', 'unknown', 'unavailable'] else text }}
+          title: "{{ request.split(' - ')[0] | trim }}"
+          artist: "{{ request.split(' - ', 1)[1] | trim if ' - ' in request else '' }}"
+      - action: media_player.volume_set
+        continue_on_error: true
+        target:
+          entity_id: media_player.office
+        data:
+          volume_level: "{{ song_volume }}"
+      - action: music_assistant.play_media
+        continue_on_error: true
+        target:
+          entity_id: media_player.office
+        data: >-
+          {{ dict(media_id=title, media_type='track', enqueue='replace', radio_mode=false,
+             **(dict(artist=artist) if artist else {})) }}
+      - wait_template: "{{ is_state('media_player.office', 'playing') }}"
+        timeout: "00:00:30"
+      - wait_template: "{{ not is_state('media_player.office', 'playing') }}"
+        timeout: "00:15:00"
+      # Restore unless someone changed the volume during the song.
+      - if: >-
+          {{ previous_volume is number and
+             (state_attr('media_player.office', 'volume_level') | float(0) - song_volume) | abs < 0.02 }}
+        then:
+          - action: media_player.volume_set
+            continue_on_error: true
+            target:
+              entity_id: media_player.office
+            data:
+              volume_level: "{{ previous_volume }}"

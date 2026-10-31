@@ -1,8 +1,8 @@
 local_map: {}
 frontend:
   extra_module_url:
-    - /local/local-map/local-map-card.js?v=4
-    - /local/local-map/overview-widgets.js?v=26
+    - /local/local-map/local-map-card.js?v=5
+    - /local/local-map/overview-widgets.js?v=37
 lovelace:
   dashboards:
     family-calendar:
@@ -141,10 +141,12 @@ command_line:
         - timezone
         - events
         - event_count
+        - birth_date
         - last_bath
         - days_since_bath
         - lastFeed
         - lastDiaper
+        - lastDirtyDiaper
         - lastSleep
         - crying_now
         - last_cry
@@ -159,7 +161,9 @@ command_line:
       command: python3 /config/scripts/local-earthquakes.py @@HOME_LAT@@ @@HOME_LON@@
       command_timeout: 30
       scan_interval: 600
-      value_template: "{{ value_json.count_24h if value_json.status == 'ok' else 'unavailable' }}"
+      value_template: "{{ value_json.count_24h }}"
+      # A literal 'unavailable' state is rejected by measurement sensors.
+      availability: "{{ value_json.status == 'ok' }}"
       state_class: measurement
       json_attributes:
         - quakes
@@ -169,7 +173,7 @@ command_line:
         - checked_at
         - error
   - sensor:
-      name: Raspberry Pi
+      name: Device Health
       unique_id: local_map_system_status
       command: python3 /config/scripts/local-system-status.py
       command_timeout: 15
@@ -187,7 +191,9 @@ command_line:
         - disk_percent
         - disk_free_gb
         - uptime_hours
+        - host
         - undervoltage
+        - battery
         - database_mb
         - checked_at
   # PurpleAir spends API points per sensor and field: 30 minutes, 2-mile box.
@@ -211,7 +217,9 @@ command_line:
       command_timeout: 30
       scan_interval: 600
       # Active fires countywide; the Overview card shows only while this is above 0.
-      value_template: "{{ value_json.fires if value_json.status == 'ok' else 'unavailable' }}"
+      value_template: "{{ value_json.fires }}"
+      # A literal 'unavailable' state is rejected by measurement sensors.
+      availability: "{{ value_json.status == 'ok' }}"
       state_class: measurement
       json_attributes:
         - count
@@ -283,6 +291,35 @@ command_line:
 # Numeric twins of sensor.internet, so HA keeps long-term (hourly) statistics
 # beyond the 10-day history: the uptime sensor's mean is the share of time online.
 template:
+  # The Pi's health when HA runs on another host: cron on the Pi posts
+  # local-system-status.py's JSON here every 10 minutes (install.sh sets it up).
+  # A trigger sensor keeps its last reading across HA restarts.
+  - trigger:
+      - trigger: webhook
+        webhook_id: !secret pi_health_webhook
+        allowed_methods: [POST]
+        local_only: true
+    sensor:
+      - name: Pi Health
+        unique_id: local_map_pi_health
+        state: "{{ trigger.json.status }}"
+        attributes:
+          host: "{{ trigger.json.host }}"
+          cpu_percent: "{{ trigger.json.cpu_percent }}"
+          load: "{{ trigger.json.load }}"
+          cpu_count: "{{ trigger.json.cpu_count }}"
+          temperature_c: "{{ trigger.json.temperature_c }}"
+          memory_percent: "{{ trigger.json.memory_percent }}"
+          memory_available_mb: "{{ trigger.json.memory_available_mb }}"
+          memory_total_mb: "{{ trigger.json.memory_total_mb }}"
+          swap_percent: "{{ trigger.json.swap_percent }}"
+          disk_percent: "{{ trigger.json.disk_percent }}"
+          disk_free_gb: "{{ trigger.json.disk_free_gb }}"
+          uptime_hours: "{{ trigger.json.uptime_hours }}"
+          undervoltage: "{{ trigger.json.undervoltage }}"
+          battery: "{{ trigger.json.battery }}"
+          database_mb: "{{ trigger.json.database_mb }}"
+          checked_at: "{{ trigger.json.checked_at }}"
   - sensor:
       - name: Internet Uptime
         unique_id: local_map_internet_uptime
@@ -388,51 +425,10 @@ automation:
       - trigger: time
         at: '05:00:00'
     actions:
-      # Fetch fresh BabySteps and nursery data rather than speak a 5-minute-old status.
-      - action: homeassistant.update_entity
-        target:
-          entity_id: sensor.babysteps_status
-      - delay: '00:00:20'
-      - action: weather.get_forecasts
-        continue_on_error: true
-        target:
-          entity_id: weather.forecast_home
+      - action: script.jarvis_morning_briefing
         data:
-          type: daily
-        response_variable: forecast
-      - action: notify.mobile_app_tablet
-        data:
-          message: TTS
-          data:
-            media_stream: alarm_stream
-            # Current temperature: the NWS station when its reading is under
-            # 90 minutes old, else Met.no. Hot 85+, warm 75+, mild 60+, else cold.
-            tts_text: >-
-              Good morning.
-              {% set days = (forecast | default({})).get('weather.forecast_home', {}).get('forecast', []) %}
-              {% set high = days[0].temperature if days else none %}
-              {% set seen = state_attr('sensor.nws_observation', 'timestamp') %}
-              {% set observed = states('sensor.nws_observation') | float(none) %}
-              {% set current = observed * 9 / 5 + 32 if observed is not none and seen and (now() - as_datetime(seen)).total_seconds() < 5400
-                 else state_attr('weather.forecast_home', 'temperature') %}
-              {% if high is not none %}Today will be {{ 'hot' if high >= 85 else 'warm' if high >= 75 else 'mild' if high >= 60 else 'cold' }}:
-              {% if current is not none %}{{ current | round(0) | int }} degrees now, with a high of {{ high | round(0) | int }}.{% else %}a high of {{ high | round(0) | int }}.{% endif %}{% endif %}
-              {% if is_state('sensor.babysteps_status', 'ok') %}{{ state_attr('sensor.babysteps_status', 'briefing') }}
-              {% else %}Baby status is unavailable; BabySteps could not be reached.{% endif %}
-              {# Active warnings, as the Overview shows them. #}
-              {% set alerts = (state_attr('sensor.local_weather_alerts', 'alerts') or []) | selectattr('event', 'defined') | list %}
-              {% if is_state('sensor.local_weather_alerts', 'active') and alerts %}Weather warning: {{ alerts | map(attribute='event') | unique | join(', ') }}.{% endif %}
-              {% if is_state('sensor.power_shutoff', 'power_shutoff') %}Power warning: SCE lists an active power shutoff on the @@PSPS_CIRCUIT@@ circuit.
-              {% elif is_state('sensor.power_shutoff', 'under_consideration') %}Power warning: SCE is considering a power shutoff on the @@PSPS_CIRCUIT@@ circuit.{% endif %}
-              {% if is_state('sensor.internet', 'offline') %}The internet is down.
-              {% elif is_state('sensor.internet', 'degraded') %}The internet connection is degraded.{% endif %}
-              {% set pi = states.sensor.raspberry_pi %}
-              {% if pi is none or pi.state != 'ok' %}The Raspberry Pi status is unavailable.
-              {% else %}{% set a = pi.attributes %}
-              {% if a.undervoltage %}The Raspberry Pi reports undervoltage; check its power supply.{% endif %}
-              {% if (a.temperature_c or 0) >= 80 %}The Raspberry Pi is hot, {{ a.temperature_c | round(0) | int }} degrees Celsius.{% endif %}
-              {% if (a.memory_percent or 0) >= 85 or (a.swap_percent or 0) >= 85 %}The Raspberry Pi is low on memory.{% endif %}
-              {% if (a.disk_percent or 0) >= 90 %}The Raspberry Pi's SD card is nearly full.{% endif %}{% endif %}
+          speak: true
+          include_tablet: true
   # Speak once per quake: `alert` is an M4.0+ within 50 miles from the last 30 minutes.
   - id: local_map_earthquake_announcement
     alias: Nearby earthquake announcement

@@ -370,7 +370,9 @@ class FireIncidentsCard extends HTMLElement {
 }
 if(!customElements.get('fire-incidents-card'))customElements.define('fire-incidents-card',FireIncidentsCard);
 
-// Raspberry Pi health from sensor.raspberry_pi (read inside the HA container).
+// Host health: sensor.raspberry_pi is the HA host (read inside the HA container;
+// the id predates HA moving off the Pi), sensor.pi_health the Pi when it is
+// another machine (pushed by cron). `name` labels the card above its tiles.
 class PiHealthCard extends HTMLElement {
   constructor(){super();this.attachShadow({mode:'open'});}
   setConfig(config){this.config=config;this.toggleAttribute('hide-title',!!config.hide_title);}
@@ -382,19 +384,24 @@ class PiHealthCard extends HTMLElement {
     this.pi=pi;this.rendered=true;this.render();
   }
   render(){
-    const a=this.pi?.attributes||{}, ok=this.pi?.state==='ok' && fresh(a.checked_at,25);
+    const a=this.pi?.attributes||{}, ok=this.pi?.state==='ok' && fresh(a.checked_at,this.config?.fresh_minutes||65);
     // Thresholds: Pi 3 soft-throttles at 80°C; heavy swap on 1 GB means memory pressure.
     const level=(v,warn,bad)=>v===null||v===undefined?'#aaa':v>=bad?'#ff7b7b':v>=warn?'#ffb56b':'#9dd3a8';
-    this.shadowRoot.innerHTML=`<style>${TILE_STYLE}.grid{grid-template-columns:repeat(2,1fr)}.value{font-size:19px}</style><ha-card><h2>Raspberry Pi</h2><div class="grid" id="items"></div><div class="checked" id="checked"></div></ha-card>`;
+    this.shadowRoot.innerHTML=`<style>${TILE_STYLE}.grid{grid-template-columns:repeat(2,1fr)}.value{font-size:19px}.name{font-weight:600;margin:0 0 10px}</style><ha-card><h2>Device Health</h2><div class="name" id="name"></div><div class="grid" id="items"></div><div class="checked" id="checked"></div></ha-card>`;
+    const name=this.shadowRoot.querySelector('#name');
+    if(this.config?.name)name.textContent=this.config.name;else name.remove();
     const items=this.shadowRoot.querySelector('#items');
     const tile=(label,value,note,color)=>{const item=make('section',undefined,'item');item.style.borderLeftColor=color;item.append(make('div',label,'label'),make('div',value,'value'));if(note)item.append(make('div',note,'small'));items.append(item);};
-    if(!ok){items.append(make('p','Pi status unavailable.','small'));return;}
+    if(!ok){items.append(make('p','Device status unavailable.','small'));return;}
     tile('CPU',`${Math.round(a.cpu_percent)}%`,`Load ${a.load.map(v=>v.toFixed(2)).join(' ')}`,level(a.load[0]/a.cpu_count*100,75,100));
-    tile('Temperature',`${Math.round(a.temperature_c)}°C`,a.undervoltage?'Undervoltage detected':'Power OK',a.undervoltage?'#ff7b7b':level(a.temperature_c,70,80));
-    tile('Memory',`${Math.round(a.memory_percent)}%`,`${a.memory_available_mb} MB free · swap ${Math.round(a.swap_percent??0)}%`,level(Math.max(a.memory_percent,a.swap_percent??0),70,85));
-    tile('SD card',`${Math.round(a.disk_percent)}%`,`${a.disk_free_gb} GB free${a.database_mb!==null?` · HA database ${a.database_mb} MB`:''}`,level(a.disk_percent,75,90));
+    tile('Temperature',`${Math.round(a.temperature_c)}°C`,a.undervoltage?'Undervoltage detected':a.undervoltage===null?'':'Power OK',a.undervoltage?'#ff7b7b':level(a.temperature_c,70,80));
+    const size=mb=>mb>=1024?`${(mb/1024).toFixed(1)} GB`:`${mb} MB`;
+    tile('Memory',`${Math.round(a.memory_percent)}%`,`${size(a.memory_available_mb)} free of ${size(a.memory_total_mb)} · swap ${Math.round(a.swap_percent??0)}%`,level(Math.max(a.memory_percent,a.swap_percent??0),70,85));
+    tile(a.undervoltage===null?'Disk':'SD card',`${Math.round(a.disk_percent)}%`,`${a.disk_free_gb} GB free${a.database_mb!==null?` · HA database ${a.database_mb} MB`:''}`,level(a.disk_percent,75,90));
+    const b=a.battery;
+    if(b)tile('Battery',`${b.percent}%`,[b.ac_online===false?'On battery':'On AC',b.health_percent?`health ${b.health_percent}%`:'',b.cycles?`${b.cycles} cycles`:''].filter(Boolean).join(' · '),b.ac_online===false?'#ffb56b':level(100-(b.health_percent??100),50,70));
     const days=Math.floor(a.uptime_hours/24);
-    this.shadowRoot.querySelector('#checked').textContent=`Up ${days?`${days} d `:''}${Math.round(a.uptime_hours%24)} h · Checked ${localTime(a.checked_at)} · every 30 minutes`;
+    this.shadowRoot.querySelector('#checked').textContent=`${a.host?`${a.host} · `:''}Up ${days?`${days} d `:''}${Math.round(a.uptime_hours%24)} h · Checked ${localTime(a.checked_at)} · every ${this.config?.every||'30 minutes'}`;
   }
 }
 if(!customElements.get('pi-health-card'))customElements.define('pi-health-card',PiHealthCard);
@@ -754,6 +761,308 @@ class LocalCalendarCard extends HTMLElement {
 }
 if(!customElements.get('local-calendar-card'))customElements.define('local-calendar-card',LocalCalendarCard);
 
+// Office window camera (scripts/cameras). The minute snapshot paints at
+// once; the live stream fades in over it when video actually plays, and the
+// previous day's timelapse plays in place. Media goes through signed media
+// source URLs, not /local, which is public.
+const CAMERA_MEDIA='media-source://media_source/local/office-camera';
+const findDeep=(root,selector)=>{
+  const tree=root?.shadowRoot||root;
+  if(!tree?.querySelectorAll)return null;
+  const match=tree.querySelector(selector);
+  if(match)return match;
+  for(const element of tree.querySelectorAll('*'))if(element.shadowRoot){const found=findDeep(element,selector);if(found)return found;}
+  return null;
+};
+const findVideo=root=>findDeep(root,'video');
+// Full screen for a camera card's picture. iPhone Safari only full-screens a
+// <video> itself, so fall back to that.
+const toggleFullscreen=frame=>{
+  if(document.fullscreenElement)return document.exitFullscreen();
+  if(frame.requestFullscreen)return frame.requestFullscreen().catch(()=>{});
+  const video=[...frame.querySelectorAll('video:not([hidden])')].pop()||findVideo(frame);
+  video?.webkitEnterFullscreen?.();
+};
+const FULLSCREEN_CSS='.frame:fullscreen{aspect-ratio:auto;width:100vw;height:100vh}.frame:fullscreen .still{object-fit:contain}';
+class OfficeCameraCard extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'});}
+  setConfig(config){this.config={entity:'camera.office_window',...config};}
+  getCardSize(){return 5;}
+  getGridOptions(){return {columns:12,rows:'auto'};}
+  set hass(hass){
+    this._hass=hass;
+    // The stream's access token rotates with the entity's state object.
+    if(this.live){this.live.hass=hass;const state=hass.states[this.config.entity];if(state!==this.live.stateObj)this.live.stateObj=state;}
+    if(!this.built){this.built=true;this.build();}
+  }
+  connectedCallback(){if(this.built)this.start();}
+  disconnectedCallback(){clearInterval(this.timer);clearInterval(this.poll);this.timer=this.poll=undefined;}
+  build(){
+    this.shadowRoot.innerHTML=`<style>
+      :host{display:block}[hidden]{display:none!important}
+      ha-card{display:block;overflow:hidden;border-radius:var(--ha-card-border-radius,12px);background:var(--ha-card-background,var(--card-background-color))}
+      .frame{position:relative;aspect-ratio:16/9;background:#111}
+      .frame>*{position:absolute;inset:0;width:100%;height:100%}
+      .still{object-fit:cover}
+      .live{opacity:0;transition:opacity .4s;cursor:pointer}.live ha-camera-stream{display:block;width:100%;height:100%}
+      .frame.playing .live{opacity:1}
+      .lapse{object-fit:contain;background:#000;z-index:1}
+      .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;color:var(--secondary-text-color);font-size:13px}
+      .bar span{flex:1}
+      button{font:inherit;color:var(--primary-color);background:none;border:1px solid var(--divider-color);border-radius:16px;padding:4px 12px;cursor:pointer}
+      ${FULLSCREEN_CSS}
+    </style><ha-card><div class="frame"><img class="still" alt="Office window" hidden><div class="live"></div><video class="lapse" controls muted playsinline hidden></video></div>
+      <div class="bar"><span>Office window · loading</span><button class="play" hidden></button><button class="full" title="Full screen">⛶</button></div></ha-card>`;
+    this.frame=this.shadowRoot.querySelector('.frame');
+    this.still=this.shadowRoot.querySelector('.still');
+    this.lapse=this.shadowRoot.querySelector('.lapse');
+    this.status=this.shadowRoot.querySelector('.bar span');
+    this.play=this.shadowRoot.querySelector('.play');
+    this.play.addEventListener('click',()=>this.toggleLapse());
+    this.shadowRoot.querySelector('.full').addEventListener('click',()=>toggleFullscreen(this.frame));
+    this.lapse.addEventListener('ended',()=>this.toggleLapse(false));
+    // HA's own player; it reads its API connection from Lit context, so it has
+    // to sit inside this card's tree rather than anywhere on the page.
+    this.live=Object.assign(document.createElement('ha-camera-stream'),{hass:this._hass,stateObj:this._hass.states[this.config.entity],muted:true,controls:false,fitMode:'cover'});
+    const layer=this.shadowRoot.querySelector('.live');
+    layer.append(this.live);
+    // Tapping the picture opens the camera's more-info dialog, as picture-entity does.
+    layer.addEventListener('click',()=>this.dispatchEvent(new CustomEvent('hass-more-info',{bubbles:true,composed:true,detail:{entityId:this.config.entity}})));
+    this.timelapse();
+    if(this.isConnected)this.start();
+  }
+  start(){
+    if(this.timer)return;
+    this.snapshot();
+    this.timer=setInterval(()=>this.snapshot(),60*1000);
+    this.poll=setInterval(()=>{
+      const video=findVideo(this.live), playing=!!video && video.readyState>=2 && !video.paused;
+      this.frame.classList.toggle('playing',playing);
+      if(this.lapse.hidden)this.status.textContent=playing?'Office window · live':this.still.hidden?'Office window · connecting':'Office window · snapshot (live view loading)';
+    },500);
+  }
+  async resolve(path){
+    const {url}=await this._hass.callWS({type:'media_source/resolve_media',media_content_id:`${CAMERA_MEDIA}/${path}`});
+    return this._hass.hassUrl(url);
+  }
+  async snapshot(){
+    try{
+      const src=await this.resolve('latest.jpg'), image=new Image();
+      image.onload=()=>{this.still.src=src;this.still.hidden=false;};
+      image.src=src;
+    }catch(_error){/* No snapshot yet; the live layer is all there is. */}
+  }
+  async timelapse(){
+    try{
+      const folder=await this._hass.callWS({type:'media_source/browse_media',media_content_id:`${CAMERA_MEDIA}/timelapse`});
+      const latest=(folder.children||[]).filter(item=>item.title.endsWith('.mp4')).sort((a,b)=>a.title.localeCompare(b.title)).pop();
+      if(!latest)return;
+      this.lapseFile=latest.title;
+      const day=new Date(`${latest.title.slice(0,10)}T12:00`).toLocaleDateString(undefined,{weekday:'long'});
+      this.play.textContent=`▶ ${day}'s timelapse`;
+      this.play.hidden=false;
+    }catch(_error){/* No timelapse folder yet. */}
+  }
+  async toggleLapse(show=this.lapse.hidden){
+    if(!show){this.lapse.pause();this.lapse.hidden=true;this.play.textContent=this.play.dataset.label;return;}
+    this.play.dataset.label=this.play.textContent;
+    this.lapse.src=await this.resolve(`timelapse/${this.lapseFile}`);
+    this.lapse.hidden=false;
+    this.play.textContent='✕ Close timelapse';
+    this.status.textContent=`Timelapse · ${this.lapseFile.slice(0,10)}`;
+    this.lapse.play().catch(()=>{});
+  }
+}
+if(!customElements.get('office-camera-card'))customElements.define('office-camera-card',OfficeCameraCard);
+
+// Baby monitor on the BabySteps dashboard: the laptop's own webcam and microphone
+// (scripts/cameras), live only while the lid is open. Browsers start video muted;
+// Listen turns the sound on, which needs that tap anyway. HA's WebRTC player
+// receives the audio track but never attaches it, so it plays through <audio>.
+class BabyMonitorCard extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'});this.listening=false;}
+  setConfig(config){this.config={entity:'camera.baby_monitor',lid_entity:'binary_sensor.laptop_lid',...config};}
+  getCardSize(){return 6;}
+  getGridOptions(){return {columns:12,rows:'auto'};}
+  set hass(hass){
+    this._hass=hass;
+    if(!this.built){this.built=true;this.build();}
+    if(this.live){this.live.hass=hass;const state=hass.states[this.config.entity];if(state!==this.live.stateObj)this.live.stateObj=state;}
+    const closed=hass.states[this.config.lid_entity]?.state==='off';
+    if(closed!==this.closed){this.closed=closed;this.update();}
+  }
+  connectedCallback(){if(this.built)this.update();}
+  disconnectedCallback(){clearInterval(this.poll);this.poll=undefined;this.stop();}
+  build(){
+    this.shadowRoot.innerHTML=`<style>
+      :host{display:block}[hidden]{display:none!important}
+      ha-card{display:block;overflow:hidden;border-radius:var(--ha-card-border-radius,12px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      .frame{position:relative;aspect-ratio:16/9;background:#111}
+      .frame ha-camera-stream{display:block;width:100%;height:100%}
+      .off{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;padding:0 24px;text-align:center;color:#ccc}
+      .off ha-icon{--mdc-icon-size:40px;color:#888}
+      .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;color:var(--secondary-text-color);font-size:13px}
+      .bar span{flex:1}
+      button{font:inherit;color:var(--primary-color);background:none;border:1px solid var(--divider-color);border-radius:16px;padding:4px 12px;cursor:pointer}
+      button.on{color:var(--text-primary-color,#fff);background:var(--primary-color);border-color:var(--primary-color)}
+      ${FULLSCREEN_CSS}
+    </style><ha-card><div class="frame"><div class="off" hidden><ha-icon icon="mdi:laptop-off"></ha-icon><b>Baby monitor is off</b><span>The laptop lid is closed. Open it to watch and listen.</span></div></div>
+      <div class="bar"><span>Baby monitor</span><button class="listen" hidden></button><button class="full" title="Full screen" hidden>⛶</button></div><audio></audio></ha-card>`;
+    this.frame=this.shadowRoot.querySelector('.frame');
+    this.off=this.shadowRoot.querySelector('.off');
+    this.status=this.shadowRoot.querySelector('.bar span');
+    this.button=this.shadowRoot.querySelector('.listen');
+    this.audio=this.shadowRoot.querySelector('audio');
+    this.full=this.shadowRoot.querySelector('.full');
+    this.full.addEventListener('click',()=>toggleFullscreen(this.frame));
+    this.button.addEventListener('click',()=>{this.listening=!this.listening;if(this.live)this.live.muted=!this.listening;this.label();this.sound();});
+    this.label();
+  }
+  label(){
+    this.button.textContent=this.listening?'🔊 Listening':'🔇 Listen';
+    this.button.classList.toggle('on',this.listening);
+  }
+  stop(){this.live?.remove();this.live=undefined;this.audio.pause();this.audio.srcObject=null;}
+  // Follows reconnects: a new peer connection brings a new audio track.
+  sound(){
+    if(!this.listening){this.audio.pause();this.audio.srcObject=null;return;}
+    const track=findDeep(this.live,'ha-web-rtc-player')?._peerConnection?.getReceivers().find(receiver=>receiver.track.kind==='audio')?.track;
+    if(!track||this.audio.srcObject?.getAudioTracks()[0]===track)return;
+    this.audio.srcObject=new MediaStream([track]);
+    this.audio.play().catch(()=>{});
+  }
+  update(){
+    if(!this.built||!this.isConnected)return;
+    this.off.hidden=!this.closed;
+    this.button.hidden=this.full.hidden=this.closed;
+    if(this.closed){this.stop();clearInterval(this.poll);this.poll=undefined;this.status.textContent='Baby monitor · lid closed';return;}
+    if(!this.live){
+      // HA's own player; it reads its API connection from Lit context, so it has
+      // to sit inside this card's tree.
+      this.live=Object.assign(document.createElement('ha-camera-stream'),{hass:this._hass,stateObj:this._hass.states[this.config.entity],muted:!this.listening,controls:false,fitMode:'contain'});
+      this.frame.append(this.live);
+    }
+    if(!this.poll)this.poll=setInterval(()=>{
+      const video=findVideo(this.live), playing=!!video && video.readyState>=2 && !video.paused;
+      this.status.textContent=playing?`Baby monitor · live${this.listening?'':', sound off'}`:'Baby monitor · connecting';
+      this.sound();
+    },500);
+  }
+}
+if(!customElements.get('baby-monitor-card'))customElements.define('baby-monitor-card',BabyMonitorCard);
+
+// Sleep timers from the baby monitor analyzer (scripts/cameras/analyzer), via
+// sensor.baby_monitor_analysis. Timers tick here every second between the
+// sensor's 5-second updates. Detected sleeps can be logged to BabySteps one at
+// a time or all at once (script.baby_monitor_log_sleep).
+const span=seconds=>{
+  if(seconds==null||!isFinite(seconds))return '—';
+  const s=Math.max(0,Math.round(seconds)), h=Math.floor(s/3600), m=Math.floor(s%3600/60);
+  if(h)return `${h}h ${String(m).padStart(2,'0')}m`;
+  if(m>=10)return `${m}m`;
+  return m?`${m}m ${String(s%60).padStart(2,'0')}s`:`${s}s`;
+};
+const since=iso=>iso?(Date.now()-new Date(iso).getTime())/1000:null;
+const clockAt=iso=>iso?new Date(iso).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):'';
+const PAUSED={'lid closed':'Paused · laptop lid closed','monitoring off':'Paused · monitoring is off','no signal':'Paused · no camera signal','restarted':'Starting up'};
+const EVENT_TEXT={in_frame:'In crib',settling:'Settling',asleep:'Asleep',woke:'Woke',cry:'Cried',fuss:'Fussed',left:'Out of crib'};
+class BabySleepCard extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'});}
+  setConfig(config){this.config={entity:'sensor.baby_monitor_analysis',...config};this.toggleAttribute('hide-title',!!config.hide_title);}
+  getCardSize(){return 7;}
+  getGridOptions(){return {columns:12,rows:'auto'};}
+  set hass(hass){
+    this._hass=hass;
+    const entity=hass.states[this.config.entity];
+    if(entity===this.entity&&this.rendered)return;
+    this.entity=entity;this.rendered=true;this.render();
+  }
+  connectedCallback(){this.timer=setInterval(()=>this.render(),1000);}
+  async logSleep(sleep){
+    this.logging.add(sleep.id);this.notes[sleep.id]='';this.render();
+    try{
+      const {response}=await this._hass.callWS({type:'call_service',domain:'script',service:'baby_monitor_log_sleep',
+        service_data:{id:sleep.id,start:sleep.start,end:sleep.end},return_response:true});
+      this.notes[sleep.id]=response?.ok?'':(response?.errors||['BabySteps did not save it.']).join(' ');
+      if(response?.ok)this.done.add(sleep.id);
+      return !!response?.ok;
+    }catch(error){this.notes[sleep.id]=error.message||String(error);return false;}
+    finally{this.logging.delete(sleep.id);this.render();}
+  }
+  async logAll(){
+    // Oldest first, stopping at the first refusal so its reason stays visible.
+    for(const sleep of this.unlogged().reverse())if(!await this.logSleep(sleep))break;
+  }
+  unlogged(){return (this.entity?.attributes.sleeps||[]).filter(sleep=>!sleep.logged&&!this.done.has(sleep.id));}
+  disconnectedCallback(){clearInterval(this.timer);}
+  render(){
+    if(!this.body){
+      this.shadowRoot.innerHTML=`<style>${TILE_STYLE}
+        .status{font-size:22px;font-weight:600;margin:0 0 4px}.sub{font-size:13px;opacity:.8;margin:0 0 14px}
+        .crying{color:#ff7b7b}.asleep{border-left-color:#8fb5ff}.cry{border-left-color:#ff7b7b}.fuss{border-left-color:#ffb56b}.dim{opacity:.55}
+        .bars{display:flex;align-items:flex-end;gap:1px;height:48px;margin:16px 0 4px}.bars div{flex:1;background:#8fb5ff;min-height:1px;border-radius:1px}.bars div.c{background:#ff7b7b}
+        .axis{display:flex;justify-content:space-between;font-size:11px;opacity:.7}
+        ul{list-style:none;padding:0;margin:14px 0 0;font-size:13px}li{display:flex;gap:10px;padding:3px 0;border-top:1px solid #ffffff1a}li b{min-width:64px;font-weight:500;opacity:.8}
+        .sleeps{margin:16px 0 0}.sleeps h3{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px}.sleeps h3 span{flex:1}
+        .sleep{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #ffffff1a;font-size:14px}.sleep span{flex:1}.sleep .why{flex-basis:100%;color:#ff7b7b;font-size:12px}
+        .sleep{flex-wrap:wrap}.ok{color:#9dd3a8;font-size:13px}
+        button{font:inherit;font-size:13px;color:var(--primary-color);background:none;border:1px solid var(--divider-color);border-radius:16px;padding:3px 12px;cursor:pointer}button:disabled{opacity:.5;cursor:default}
+      </style><ha-card><h2>Sleep</h2><div id="body"></div></ha-card>`;
+      this.body=this.shadowRoot.getElementById('body');
+      this.logging=new Set();this.done=new Set();this.notes={};
+      this.body.addEventListener('click',event=>{
+        const target=event.target.closest('[data-log]');
+        if(!target||target.disabled)return;
+        if(target.dataset.log==='all')return this.logAll();
+        const sleep=(this.entity?.attributes.sleeps||[]).find(item=>item.id===target.dataset.log);
+        if(sleep)this.logSleep(sleep);
+      });
+    }
+    const a=this.entity?.attributes;
+    if(!a||!this.entity||['unavailable','unknown'].includes(this.entity.state)){this.body.innerHTML='<p class="sub">Sleep tracking is unavailable: the analyzer is not answering.</p>';return;}
+    const s=this.entity.state, session=a.session_state;
+    let status;
+    if(s==='paused')status=PAUSED[a.paused_reason]||'Paused';
+    else if(a.crying)status='😢 Crying';
+    else if(session==='asleep')status=`😴 Asleep · ${span(since(a.asleep_at))}`;
+    else if(session==='settling')status=`🌙 Settling · ${span(since(a.settling_at))}`;
+    else if(session==='awake')status=`${a.fussing?'😣 Fussing':'👀 Awake in crib'} · ${span(since(a.awake_since))}`;
+    else status='Not in crib';
+    const notes=[];
+    if(s!=='paused'&&a.video==='dark')notes.push('Too dark to see movement, so falling asleep can’t be spotted; crying still is. A dim night light helps.');
+    if(s!=='paused'&&session!=='absent')notes.push(`${a.movements_per_minute} movements in the last minute${a.moving?' · moving now':''}`);
+    const last=a.last_sleep, asleep=session==='asleep'&&s!=='paused';
+    const tile=(label,value,note,cls='')=>`<section class="item ${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="small">${note||'&nbsp;'}</div></section>`;
+    const tiles=[
+      asleep?tile('Asleep for',span(since(a.asleep_at)),`since ${clockAt(a.asleep_at)}`,'asleep')
+        :tile('Awake for',last?span(since(last.end)):'—',last?`since sleep ended ${clockAt(last.end)}`:'no sleep seen yet'),
+      tile('Took to fall asleep',span(asleep?a.fell_asleep_seconds:last?.fell_asleep_seconds),
+        asleep?`settled at ${clockAt(a.asleep_at)}`:last?`before the last sleep`:'',''),
+      tile('Last sleep',last?span((new Date(last.end)-new Date(last.start))/1000):'—',last?`${clockAt(last.start)}–${clockAt(last.end)}`:''),
+      tile('In crib',a.in_frame_at?span(since(a.in_frame_at)):'—',a.in_frame_at?`since ${clockAt(a.in_frame_at)}`:'not in frame'),
+      tile('Last cry',a.crying?'Now':a.last_cry?`${span(since(a.last_cry.end))} ago`:'—',a.last_cry?`lasted ${span(a.last_cry.seconds)} · ${clockAt(a.last_cry.start)}`:'','cry'),
+      tile('Last fuss',a.fussing?'Now':a.last_fuss?`${span(since(a.last_fuss.end))} ago`:'—',a.last_fuss?`lasted ${span(a.last_fuss.seconds)} · ${clockAt(a.last_fuss.start)}`:'','fuss'),
+    ];
+    const minutes=a.minutes||[], peak=Math.max(4,...minutes.map(m=>m[0]));
+    const bars=minutes.map(([moves,cry])=>`<div class="${cry?'c':''}" style="height:${Math.round(100*(cry?Math.max(moves,peak*cry/60):moves)/peak)}%" title="${moves} movements${cry?`, ${cry}s crying`:''}"></div>`).join('');
+    const pending=this.unlogged(), busy=this.logging.size>0;
+    const sleepRows=(a.sleeps||[]).slice(0,8).map(sleep=>{
+      const logged=sleep.logged||this.done.has(sleep.id), start=new Date(sleep.start), age=Date.now()-start;
+      const day=start.toDateString()===new Date().toDateString()?'':`${start.toLocaleDateString(undefined,age<6*864e5?{weekday:'short'}:{month:'short',day:'numeric'})} `;
+      const action=logged?'<span class="ok" style="flex:0">✓ Logged</span>':`<button data-log="${sleep.id}" ${busy?'disabled':''}>${this.logging.has(sleep.id)?'Logging…':'Log'}</button>`;
+      return `<div class="sleep"><span>${day}${clockAt(sleep.start)}–${clockAt(sleep.end)} · <b>${span(sleep.seconds)}</b>${sleep.fell_asleep_seconds!=null?` · took ${span(sleep.fell_asleep_seconds)} to settle`:''}</span>${action}${this.notes[sleep.id]&&!logged?`<span class="why">${this.notes[sleep.id]}</span>`:''}</div>`;
+    }).join('');
+    const sleeps=sleepRows?`<div class="sleeps"><h3><span>Detected sleeps</span>${pending.length?`<button data-log="all" ${busy?'disabled':''}>Log all sleeps (${pending.length})</button>`:''}</h3>${sleepRows}</div>`:'';
+    const events=(a.events||[]).slice(-6).reverse().map(e=>`<li><b>${clockAt(e.at)}</b><span>${EVENT_TEXT[e.type]||e.type}${e.fell_asleep_seconds!=null?` · took ${span(e.fell_asleep_seconds)}`:''}${e.slept_seconds!=null?` · slept ${span(e.slept_seconds)}`:''}${e.seconds!=null?` · ${span(e.seconds)}`:''}${e.why&&e.type==='woke'?` · ${e.why}`:''}</span></li>`).join('');
+    this.body.innerHTML=`<div class="status ${a.crying?'crying':''}">${status}</div><div class="sub">${notes.join(' · ')||'&nbsp;'}</div>
+      <div class="grid ${s==='paused'?'dim':''}">${tiles.join('')}</div>
+      <div class="bars" title="Movements per minute, last hour; red is crying">${bars}</div><div class="axis"><span>1 hour ago</span><span>movement · <span style="color:#ff7b7b">crying</span></span><span>now</span></div>
+      ${sleeps}
+      ${events?`<ul>${events}</ul>`:''}`;
+  }
+}
+if(!customElements.get('baby-sleep-card'))customElements.define('baby-sleep-card',BabySleepCard);
+
 // Register before the built-in Overview strategy is imported. The generated
 // result stays native Lovelace, so HA supplies entities, forecasts and layout.
 customElements.whenDefined('home-overview-view-strategy').then(() => {
@@ -774,10 +1083,14 @@ customElements.whenDefined('home-overview-view-strategy').then(() => {
       {condition:'state',entity:'sensor.power_shutoff',state:['under_consideration','power_shutoff']}]}];
     const now=[card('local-warnings-card',{visibility:warningsActive}),card('fire-incidents-card',{visibility:[{condition:'numeric_state',entity:'sensor.fire_incidents',above:0}]}),
       card('earthquake-card',{visibility:[{condition:'numeric_state',entity:'sensor.earthquakes',above:0}]})], today=[card('today-card',{hide_title:true})];
+    now.push({type:'conditional',conditions:[{condition:'state',entity:'binary_sensor.cooler_air_outside',state:'on'}],
+      card:{type:'markdown',title:'ℹ️ Cooler air outside',content:"Inside: **{{ states('sensor.cooling_indoor_temperature') | float(0) | round(1) }}°F** · Outside: **{{ states('sensor.cooling_outdoor_temperature') | float(0) | round(1) }}°F**. It is cooler outside now.",
+        grid_options:{columns:12,rows:'auto'}},grid_options:{columns:12,rows:'auto'}});
     if(weatherId){
       const features=hass.states[weatherId]?.attributes.supported_features ?? 1;
       const forecastType=features & 1 ? 'daily' : features & 2 ? 'hourly' : 'twice_daily';
       now.push(card('current-conditions-card',{weather_entity:weatherId}));
+      now.push(card('office-camera-card'));
       now.push({type:'weather-forecast',entity:weatherId,name:'Thousand Oaks',show_current:false,show_forecast:true,forecast_type:forecastType,grid_options:{columns:12,rows:'auto'}});
     }
     const sections=[
@@ -795,7 +1108,9 @@ customElements.whenDefined('home-overview-view-strategy').then(() => {
     // is shown; on one column they stay at the bottom as before.
     const phoneOnly=section=>(section.visibility||[]).some(c=>c.condition==='view_columns' && c.max===1);
     const native=view.sections||[];
-    const pi={type:'grid',cards:[{type:'heading',heading:'Raspberry Pi',heading_style:'title',icon:'mdi:raspberry-pi'},card('pi-health-card',{hide_title:true}),
+    const piHealth=hass.states['sensor.pi_health']?[card('pi-health-card',{hide_title:true,name:'Home Assistant server'}),
+      card('pi-health-card',{hide_title:true,entity:'sensor.pi_health',name:'Raspberry Pi · Pi-hole, BabySteps',every:'10 minutes',fresh_minutes:25})]:[card('pi-health-card',{hide_title:true})];
+    const pi={type:'grid',cards:[{type:'heading',heading:'Device Health',heading_style:'title',icon:'mdi:server'},...piHealth,
       {type:'heading',heading:'Internet',heading_style:'title',icon:'mdi:web'},card('internet-card',{hide_title:true})]};
     if(!view.sidebar)return {...view,sections:[...sections,...native,pi]};
     const moved=[...native.filter(section=>!phoneOnly(section)),pi];

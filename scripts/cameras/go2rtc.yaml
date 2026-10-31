@@ -1,0 +1,15 @@
+# The go2rtc Home Assistant uses (configuration.yaml: go2rtc: url) for live
+# WebRTC. The camera itself is opened by the capture instance (capture.yaml).
+api:
+  listen: "127.0.0.1:1984"
+rtsp:
+  listen: "127.0.0.1:8554"
+webrtc:
+  # Browsers fetch live video from this port directly (signalling goes via HA).
+  listen: ":8555"
+streams:
+  office_window: rtsp://127.0.0.1:8556/office_window
+  # The camera only speaks MJPEG; WebRTC and HA's stream need H.264.
+  office_window_h264: ffmpeg:office_window#video=h264#hardware=vaapi
+  # Laptop webcam + microphone (capture.yaml); already H.264 + Opus.
+  baby_monitor: rtsp://127.0.0.1:8556/baby_monitor

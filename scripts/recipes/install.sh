@@ -4,7 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "${HERE}/../config.sh"
 python3 "${HERE}/build.py"
-SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${PI_TARGET}")
+SSH=(ssh "${SSH_OPTS_BATCH[@]}" "${HA_TARGET}")
 "${SSH[@]}" 'docker exec homeassistant test -d /config/packages'
 restart=0
 install_file() {
@@ -45,4 +45,4 @@ install_file "${HERE}/package.yaml" /config/packages/recipes.yaml
 if [ "$restart" = 1 ]; then
   "${SSH[@]}" 'docker restart -t 60 homeassistant'
 fi
-echo "Recipes installed: http://${PI_HOST}:8123/family-recipes/index"
+echo "Recipes installed: http://${HA_HOST}:8123/family-recipes/index"

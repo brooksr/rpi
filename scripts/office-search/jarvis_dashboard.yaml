@@ -1,0 +1,199 @@
+title: Jarvis
+views:
+  - title: Jarvis
+    path: home
+    icon: mdi:microphone-message
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Home observer
+            icon: mdi:home-search
+          - type: markdown
+            content: |-
+              {% set note = state_attr('sensor.home_agent', 'note') %}
+              {% set findings = state_attr('sensor.home_agent', 'findings') or [] %}
+              {% if states('sensor.home_agent') in ['unavailable', 'unknown'] %}
+              **The observer isn't reporting.** On the laptop, check `systemctl status home-agent`.
+              {% else %}
+              {% if note %}**{{ note.text }}**
+
+              _{{ 'Local AI' if note.source == 'qwen' else 'Rules' }} · {{ as_timestamp(note.at) | timestamp_custom('%a %-I:%M %p') }}_
+              {% endif %}
+              {% set sky = state_attr('sensor.home_agent', 'sky') %}
+              {% if sky %}🌤️ Sky from the window camera: **{{ sky.label }}** _({{ as_timestamp(sky.at) | timestamp_custom('%-I:%M %p') }})_{% endif %}
+              {% for f in findings %}
+              - {{ '⚠️' if f.severity == 'warning' else 'ℹ️' }} **{{ f.title }}**: {{ f.detail }} _Since {{ as_timestamp(f.since) | timestamp_custom('%a %-I:%M %p') }}{{ ' · 🔒 stays local' if not f.cloud else '' }}_
+              {% endfor %}
+              {% endif %}
+              {% for e in state_attr('sensor.home_agent', 'errors') or [] %}
+              _{{ e }}_
+              {% endfor %}
+          - type: markdown
+            title: Daily digest
+            content: |-
+              {% set d = state_attr('sensor.home_agent', 'digest') %}
+              {% if d %}{{ d.text }}
+
+              _{{ d.source | capitalize }} · {{ as_timestamp(d.at) | timestamp_custom('%a %-I:%M %p') }} · {{ d.sent_bytes }} bytes sent_
+              {% else %}No digest yet. One is written every evening at 7:30, or tap **Digest now**.{% endif %}
+          - type: entities
+            show_header_toggle: false
+            entities:
+              - type: custom:hui-markdown-card
+                text_only: true
+                content: |-
+                  The laptop checks Home Assistant every minute for anything unusual: office and family room temperature and humidity against the same hour on earlier days, A/C or heat running when a window would do, internet, Pi-hole, laptop and Pi health, TVs left on, low batteries, feeds that stop updating, and a window-camera sky that disagrees with the forecast. Local AI sums it up when something changes. Ask **“Anything unusual?”**
+
+                  The evening digest covers the house, the thermostat's heating and cooling time, the sky by hour and the shopping list, plus @@CHILD_NAME@@'s logged feeding, sleep and diapers across the week with care tips for his age. On a quiet day it suggests a sensor that would help. It uses Claude, or Codex if Claude fails. Location and phone data stay on the laptop (🔒). Camera images never leave it; only the sky label does. Assist conversations are never read.
+              - type: buttons
+                entities:
+                  - entity: input_button.home_agent_note
+                    name: Refresh
+                    show_name: true
+                    icon: mdi:refresh
+                    tap_action:
+                      action: perform-action
+                      perform_action: input_button.press
+                      target:
+                        entity_id: input_button.home_agent_note
+                  - entity: input_button.home_agent_digest
+                    name: Digest now
+                    show_name: true
+                    icon: mdi:creation
+                    tap_action:
+                      action: perform-action
+                      perform_action: input_button.press
+                      target:
+                        entity_id: input_button.home_agent_digest
+      - type: grid
+        cards:
+          - type: heading
+            heading: Talk to Jarvis
+            icon: mdi:microphone-message
+          - type: markdown
+            content: |-
+              Say **“Hey Jarvis”**, wait for Office to listen, then ask one question or give one command. You can also open **Assist** at the top of Home Assistant and type the same words.
+
+              Weather, household questions and music commands use Home Assistant directly. General questions use the laptop's local AI. For fresh internet information, say **“Search the web for…”** and allow up to two minutes for an answer.
+          - type: markdown
+            title: Weather and getting out
+            content: |-
+              | Ask Jarvis | What you get |
+              | --- | --- |
+              | What's the current weather? | Local conditions and temperature |
+              | What's the forecast? | Today and the next two days |
+              | What's the weather tomorrow? | Tomorrow's forecast |
+              | Give me a day trip report. | Ventura and Malibu drive, air and water conditions |
+              | How's the drive to Ventura? | Ventura trip conditions; Malibu also works |
+              | How's the local traffic? | Nearby 101 and 23 closures and message signs |
+              | When is the next Vandenberg launch? | Scheduled time, mission and viewing direction |
+              | Where is the cheapest gas nearby? | Lowest reported regular price and when it was reported |
+          - type: markdown
+            title: BabySteps and device health
+            content: |-
+              - **When did @@CHILD_NAME@@ last eat?**
+              - **When was @@CHILD_NAME@@'s last diaper change?**
+              - **When was @@CHILD_NAME@@'s last bath?**
+              - **When was @@CHILD_NAME@@'s last sleep?**
+              - **Is @@CHILD_NAME@@ asleep?**
+              - **How's @@CHILD_NAME@@ doing?** — feed, diaper and sleep summary
+              - **What's the device health?** — laptop and Raspberry Pi
+
+              Baby answers refresh BabySteps first and describe **recorded** events. Finish nursing and sleep entries in BabySteps so they don't remain in progress. Household answers flag missing or stale data.
+          - type: markdown
+            title: Home check
+            content: |-
+              - **Run a home check.**
+              - **Check the house.**
+              - **What's the home status?**
+
+              Office temperature and humidity, which lights are on, internet status, and any laptop or Raspberry Pi warnings.
+          - type: markdown
+            title: Shopping list
+            content: |-
+              - **Add milk to the shopping list.**
+              - **What's on the shopping list?**
+              - **Check off milk from the shopping list.**
+
+              Items go to the Home Assistant shopping list, also under **To-do lists** in the sidebar and the companion app.
+          - type: todo-list
+            entity: todo.shopping_list
+            title: Shopping list
+          - type: markdown
+            title: Log care by voice
+            content: |-
+              - **Log a 4 ounce bottle.**
+              - **Log 20 minutes nursing left side.**
+              - **Log a wet diaper.**
+              - **Log a bath.**
+              - **Start a nap.** — finish the entry in BabySteps later
+
+              Jarvis confirms what was saved. Open the **BabySteps** page for more logging phrases and corrections.
+      - type: grid
+        cards:
+          - type: entities
+            title: 5 AM briefing
+            icon: mdi:weather-sunset-up
+            show_header_toggle: false
+            entities:
+              - type: custom:hui-markdown-card
+                text_only: true
+                content: |-
+                  Every day at **5:00 AM Pacific**, hear one sentence on **Office and the tablet**: temperature now and today's high, the clock time of @@CHILD_NAME@@'s last feed and change, time until the next of each, and any active weather or power warnings.
+
+                  Next times are counted from each entry's start using the intervals below. Missing or stale warning data is announced as unavailable.
+              - entity: automation.5_am_baby_status
+                name: Daily 5 AM briefing
+              - entity: input_number.jarvis_feed_interval_hours
+              - entity: input_number.jarvis_diaper_interval_hours
+              - entity: input_text.jarvis_morning_song
+                name: Song override (Title - Artist; empty = daily lofi)
+              - entity: input_number.jarvis_morning_song_volume
+              - type: buttons
+                entities:
+                  - entity: script.jarvis_morning_briefing
+                    name: Refresh preview
+                    show_name: true
+                    icon: mdi:text-box-search-outline
+                    tap_action:
+                      action: perform-action
+                      perform_action: script.jarvis_morning_briefing
+                      data:
+                        speak: false
+                        include_tablet: false
+                  - entity: script.jarvis_morning_briefing
+                    name: Play on Office
+                    show_name: true
+                    icon: mdi:play-circle
+                    tap_action:
+                      action: perform-action
+                      perform_action: script.jarvis_morning_briefing
+                      data:
+                        speak: true
+                        include_tablet: false
+              - type: section
+                label: Latest briefing
+              - type: custom:hui-markdown-card
+                text_only: true
+                content: |-
+                  {% set message = state_attr('sensor.jarvis_latest_briefing', 'message') %}
+                  {{ message or 'Tap Refresh preview to build a briefing with the latest data.' }}
+
+                  {% if message %}Generated {{ as_timestamp(states('sensor.jarvis_latest_briefing')) | timestamp_custom('%a, %b %-d at %-I:%M %p') }}.{% endif %}
+          - type: markdown
+            title: Music on Office
+            content: |-
+              - **Play the playlist Lofi Loft on Office.**
+              - **Play the song Here Comes the Sun.**
+              - **Stop the music.** — pauses Office directly
+              - **Pause the music.**
+              - **Set Office volume to 30 percent.**
+
+              YouTube Music is connected. Office is the default destination for play requests. [Open Music Assistant](http://@@HA_IP@@:8095) to browse music and choose speakers on your phone or computer.
+
+              If a short command is misheard, try **“stop the music”** clearly, with a short pause after the wake word.
+          - type: media-control
+            entity: media_player.office

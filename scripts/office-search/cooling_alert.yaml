@@ -1,0 +1,84 @@
+# One shared condition for HA, the TV banner, and spoken cooling announcements.
+template:
+  - sensor:
+      - name: Cooling indoor temperature
+        unique_id: cooling_indoor_temperature
+        unit_of_measurement: °F
+        device_class: temperature
+        availability: "{{ is_number(states('sensor.h5075_001b_temperature')) }}"
+        state: >-
+          {% set value = states('sensor.h5075_001b_temperature') | float(none) %}
+          {{ value * 9 / 5 + 32 if value is not none and state_attr('sensor.h5075_001b_temperature', 'unit_of_measurement') == '°C' else value }}
+      - name: Cooling outdoor temperature
+        unique_id: cooling_outdoor_temperature
+        unit_of_measurement: °F
+        device_class: temperature
+        availability: >-
+          {% set seen = as_timestamp(state_attr('sensor.nws_observation', 'timestamp'), 0) %}
+          {% set w = states.weather.forecast_home %}
+          {{ (is_number(states('sensor.nws_observation')) and 0 <= as_timestamp(now()) - seen < 5400) or
+             (w is not none and w.state not in ['unknown', 'unavailable'] and
+              is_number(w.attributes.get('temperature')) and 0 <= as_timestamp(now()) - as_timestamp(w.last_reported, 0) < 5400) }}
+        state: >-
+          {% set seen = as_timestamp(state_attr('sensor.nws_observation', 'timestamp'), 0) %}
+          {% set nws = states('sensor.nws_observation') | float(none) %}
+          {% set value = state_attr('weather.forecast_home', 'temperature') | float(none) %}
+          {% if nws is not none and 0 <= as_timestamp(now()) - seen < 5400 %}
+            {{ nws * 9 / 5 + 32 }}
+          {% else %}
+            {{ value * 9 / 5 + 32 if value is not none and state_attr('weather.forecast_home', 'temperature_unit') == '°C' else value }}
+          {% endif %}
+  - binary_sensor:
+      - name: Cooler air outside
+        unique_id: cooler_air_outside
+        icon: mdi:window-open-variant
+        availability: >-
+          {{ is_number(states('sensor.cooling_indoor_temperature')) and is_number(states('sensor.cooling_outdoor_temperature')) }}
+        state: >-
+          {% set inside = states('sensor.cooling_indoor_temperature') | float(none) %}
+          {% set outside = states('sensor.cooling_outdoor_temperature') | float(none) %}
+          {{ inside is not none and outside is not none and inside >= 74 and outside < inside }}
+        attributes:
+          indoor_temperature: "{{ states('sensor.cooling_indoor_temperature') | float(none) }}"
+          outdoor_temperature: "{{ states('sensor.cooling_outdoor_temperature') | float(none) }}"
+          temperature_unit: °F
+          checked_at: "{{ now().isoformat() }}"
+
+automation:
+  - id: jarvis_cooler_air_outside
+    alias: Cooler air outside announcement
+    description: Announce a new cooling opportunity, at most once per hour.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.cooler_air_outside
+        to: 'on'
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ this.attributes.last_triggered is none or
+             (now() - this.attributes.last_triggered).total_seconds() >= 3600 }}
+    actions:
+      - variables:
+          message: >-
+            Cooling information. It is {{ state_attr('binary_sensor.cooler_air_outside', 'indoor_temperature') | round(1) }} degrees inside,
+            and {{ state_attr('binary_sensor.cooler_air_outside', 'outdoor_temperature') | round(1) }} degrees outside.
+            It is cooler outside now.
+      - parallel:
+          - action: notify.mobile_app_tablet
+            continue_on_error: true
+            data:
+              message: TTS
+              data:
+                media_stream: alarm_stream
+                tts_text: "{{ message }}"
+          - action: music_assistant.play_announcement
+            continue_on_error: true
+            target:
+              entity_id: media_player.office
+            data:
+              message: "{{ message }}"
+              tts_entity_id: tts.piper
+              use_pre_announce: false
+              # Speak at whatever volume Office/EchoMuse is already set to.
+              announce_volume: "{{ ((state_attr('media_player.office', 'volume_level') or 0.6) * 100) | round | int }}"

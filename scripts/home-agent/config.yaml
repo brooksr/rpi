@@ -1,0 +1,145 @@
+# Home observer config (installed as ~/home-agent/config.yaml on the HA laptop).
+# Re-run install.sh after editing; it restarts the service.
+
+recorder_db: ~/homeassistant/home-assistant_v2.db   # opened read-only
+output: ~/homeassistant/.home-agent.json            # read by sensor.home_agent
+memory_db: ~/home-agent/memory.db                   # findings history, notes, digests
+cloud_log_dir: ~/home-agent/cloud-log               # every cloud payload, kept 30 days
+cloud_workdir: ~/home-agent/cloud-cwd               # empty directory the CLI runs in
+timezone: America/Los_Angeles
+poll_seconds: 60
+
+# Given to both Qwen and the digest so suggestions fit the house.
+household: >-
+  Central heating and air conditioning, controlled by a Nest Learning Thermostat in the
+  family room. A Govee thermometer is in the home office, a west-facing room upstairs.
+
+# Privacy boundary. Default deny: entities matching neither list are never
+# read. local_only entities can raise findings that local Qwen sees and the
+# Jarvis page shows (with a lock), but they never reach the cloud digest.
+privacy:
+  cloud:
+    - sensor.h5075_001b_*            # office thermometer
+    - sensor.cooling_*
+    - binary_sensor.cooler_air_outside
+    - weather.forecast_home
+    - sensor.nws_observation
+    - sensor.local_air_quality
+    - sensor.local_weather_alerts
+    - sensor.electricity_maps_*
+    - sensor.internet
+    - sensor.internet_latency
+    - sensor.raspberry_pi            # laptop health
+    - sensor.pi_health
+    - binary_sensor.pi_hole_status
+    - media_player.samsung_6_series_55_un55nu6900
+    - media_player.bedroom_tv
+    - sensor.tablet_battery_level
+    - climate.family_room_nest
+    - sensor.family_room_nest_*
+    - sensor.babysteps_status        # baby logs, for care tips in the digest
+    - sensor.baby_sleep
+    - sensor.sun_next_setting
+    - sensor.sun_next_noon
+    - todo.shopping_list             # item names go into the digest
+    - local.office_window_sky        # sky label computed here; the image never leaves
+  local_only:
+    - person.*
+    - device_tracker.*
+    - sensor.pixel_11_*
+  # Never listed, so never read: camera entities, the baby monitor analysis,
+  # Assist conversations, notifications.
+
+shopping_list: ~/homeassistant/.shopping_list.json
+thermostat: climate.family_room_nest   # mode, setpoint and 24 h heating/cooling minutes
+baby:
+  entity: sensor.babysteps_status      # daily logs kept in memory.db beyond the recorder's 5 days
+  care_notes: >-
+    Breastfed and bottle-fed. The pediatrician said up to 7 days without a dirty diaper is OK
+    for him. The stretch that began Oct 24, 2026 is his first extended one.
+  no_dirty_limit_days: 7               # pediatrician's guidance
+  no_dirty_notice_days: 5              # show on Jarvis from day 5; warning on the last day
+
+# Sky from the office window camera's latest snapshot, in daylight only.
+# Calibrated 2026-10-27..30 against Met.no cloud cover: blue minus red of the
+# sky band is ~90-130 on clear days and ~0-30 under overcast or rain.
+sky:
+  entity: local.office_window_sky
+  image: ~/homeassistant/media/office-camera/latest.jpg
+  crop: [0, 0, 1280, 280]          # above the ridge line
+  clear_blue: 75
+  overcast_blue: 35
+  every_minutes: 10
+  daylight_margin_minutes: 60      # skip low sun after sunrise and before sunset
+
+controls:
+  note: input_button.home_agent_note
+  digest: input_button.home_agent_digest
+
+ollama:
+  url: http://127.0.0.1:11434
+  model: qwen3:4b-instruct-2507-q4_K_M
+  # Qwen shares the CPU with Assist; at most one note per 30 minutes unless
+  # the Jarvis page asks.
+  min_minutes_between: 30
+  timeout_seconds: 240
+
+cloud:
+  cli: claude            # claude, codex or none
+  fallback: codex        # tried when cli fails (expired sign-in, usage limit)
+  model: null            # CLI default
+  digest_time: '19:30'
+  min_minutes_between: 30
+  timeout_seconds: 240
+
+# Current values included in the digest (state plus listed attributes).
+digest_context:
+  - {entity: weather.forecast_home, label: Weather, attributes: [temperature, humidity]}
+  - {entity: sensor.local_air_quality, label: Air quality AQI, attributes: [pm2_5, ozone]}
+  - {entity: sensor.internet, label: Internet}
+
+detectors:
+  # Compared with the same hour on earlier days (HA long-term statistics).
+  baseline:
+    - {entity: sensor.h5075_001b_temperature, label: Office temperature, min_delta: 3}
+    - {entity: sensor.h5075_001b_humidity, label: Office humidity, min_delta: 10}
+    - {entity: sensor.internet_latency, label: Internet latency, min_delta: 40}
+    - {entity: sensor.family_room_nest_temperature, label: Family room temperature, min_delta: 3}
+    - {entity: sensor.family_room_nest_humidity, label: Family room humidity, min_delta: 10}
+
+  hvac_outside:
+    - {entity: climate.family_room_nest, outdoor: sensor.cooling_outdoor_temperature, margin: 3}
+
+  bad_state:
+    - {entity: sensor.internet, label: Internet, states: [offline, degraded], for_minutes: 3}
+    - {entity: binary_sensor.pi_hole_status, label: Pi-hole, states: ['off'], for_minutes: 10,
+       detail: Not blocking ads.}
+    - {entity: sensor.babysteps_status, label: BabySteps feed, states: [error], for_minutes: 30,
+       detail: Can't read BabySteps.}
+
+  threshold:
+    - {entity: sensor.raspberry_pi, attribute: battery.ac_online, equals: false, label: Laptop on battery,
+       detail: The home server is unplugged or the power is out.}
+    - {entity: sensor.raspberry_pi, attribute: temperature_c, above: 85, unit: °C, label: Laptop CPU hot}
+    - {entity: sensor.raspberry_pi, attribute: disk_percent, above: 90, unit: '%', label: Laptop disk nearly full}
+    - {entity: sensor.raspberry_pi, attribute: memory_percent, above: 90, unit: '%', label: Laptop memory high}
+    - {entity: sensor.pi_health, attribute: temperature_c, above: 75, unit: °C, label: Pi CPU hot}
+    - {entity: sensor.pi_health, attribute: disk_percent, above: 90, unit: '%', label: Pi disk nearly full}
+    - {entity: sensor.pi_health, attribute: memory_percent, above: 90, unit: '%', label: Pi memory high}
+    - {entity: sensor.tablet_battery_level, below: 20, unit: '%', label: Tablet battery low, severity: info}
+    - {entity: sensor.h5075_001b_battery, below: 15, unit: '%', label: Office thermometer battery low,
+       severity: info}
+
+  # Report sources that stop updating (polling interval plus margin).
+  stale:
+    - {entity: sensor.h5075_001b_temperature, label: Office thermometer, max_minutes: 60}
+    - {entity: sensor.internet, label: Internet check, max_minutes: 75}
+    - {entity: sensor.raspberry_pi, label: Laptop health report, max_minutes: 75}
+    - {entity: sensor.pi_health, label: Pi health report, max_minutes: 35}
+    - {entity: sensor.babysteps_status, label: BabySteps feed, max_minutes: 45}
+    - {entity: climate.family_room_nest, label: Nest thermostat, max_minutes: 360}
+
+  on_too_long:
+    - {entity: media_player.samsung_6_series_55_un55nu6900, label: Living room TV, states: ['on', playing],
+       max_minutes: 240}
+    - {entity: media_player.bedroom_tv, label: Bedroom TV, states: ['on', playing], max_minutes: 240}

@@ -1,0 +1,18 @@
+# Owns the HEAD USB camera (office window, facing west); only opens it while
+# someone pulls a stream. Home Assistant never talks to this instance: an
+# active v4l2 producer has no url in /api/streams, which HA's go2rtc client
+# (0.4.0) rejects, so live view broke whenever the camera was already in use.
+# go2rtc.yaml re-streams it over RTSP for HA.
+api:
+  listen: "127.0.0.1:1985"
+rtsp:
+  listen: "127.0.0.1:8556"
+webrtc:
+  listen: ""
+streams:
+  office_window: v4l2:device?video=/dev/v4l/by-id/usb-GENERAL_GENERAL_-_UVC-video-index0&input_format=mjpeg&video_size=1280x720
+  # The laptop's own webcam and microphone, for the BabySteps baby monitor.
+  # Encoded here, once, while someone watches or the analyzer runs (the webcam
+  # light shows it), on the Intel GPU (VAAPI): software x264 took most of a core.
+  # Wall-clock timestamps keep the separate video and ALSA inputs in sync.
+  baby_monitor: exec:ffmpeg -hide_banner -loglevel error -thread_queue_size 512 -use_wallclock_as_timestamps 1 -f v4l2 -input_format mjpeg -video_size 1280x720 -framerate 15 -i /dev/v4l/by-id/usb-Chicony_Electronics_Co._Ltd._USB2.0_HD_UVC_WebCam_0x0001-video-index0 -thread_queue_size 512 -use_wallclock_as_timestamps 1 -f alsa -channels 2 -sample_rate 48000 -i hw:0,0 -init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va -vf format=nv12,hwupload -c:v h264_vaapi -g 15 -bf 0 -c:a libopus -ac 1 -b:a 48k -rtsp_transport tcp -f rtsp {output}

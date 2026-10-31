@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the desktop only while the laptop lid is open
+After=systemd-user-sessions.service
+
+[Service]
+ExecStart=/usr/local/bin/lid-desktop.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

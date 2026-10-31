@@ -25,7 +25,8 @@ import uuid
 import urllib.request
 import zoneinfo
 
-API = os.environ.get('BABYSTEPS_API', 'http://127.0.0.1:8790/api/v1')
+# The Pi's BabySteps through its HTTPS front end, so HA can run on another host.
+API = os.environ.get('BABYSTEPS_API', 'https://@@TAILNET_HOST@@:8443/api/v1')
 STATE = pathlib.Path(os.environ.get('BABYSTEPS_STATE', '/config/.babysteps-native.json'))
 PENDING = STATE.with_name('.babysteps-native-pending.json')
 SOURCE_DEVICE = 'home-assistant'
@@ -96,17 +97,20 @@ def summarize(data, now):
     events.sort(key=lambda e: e['startedAt'], reverse=True)
     local = lambda e: datetime.datetime.fromisoformat(e['startedAt'].replace('Z', '+00:00')).astimezone(zone)
     latest = lambda kind: next((e for e in events if e.get('type') == kind), None)
-    bath = latest('bath')
+    bath, birth = latest('bath'), latest('birth')
     feed, diaper, sleep = latest('feed'), latest('diaper'), latest('sleep')
+    dirty = next((e for e in events if e.get('type') == 'diaper' and e.get('kind') in ('dirty', 'both')), None)
     todays = [{'time': e['startedAt'], 'type': e['type'], 'text': describe(e), 'endedAt': e.get('endedAt')}
               for e in reversed(events) if local(e).date() == today]
     return {
         'status': 'ok', 'child': (child.get('name') or '').split(' ')[0], 'timezone': str(zone),
         'events': todays[-30:], 'event_count': len(todays),
+        'birth_date': child.get('birthDate') or (birth['startedAt'] if birth else None),
         'last_bath': bath['startedAt'] if bath else None,
         'days_since_bath': (today - local(bath).date()).days if bath else None,
         'lastFeed': {k: feed.get(k) for k in ('startedAt', 'endedAt', 'method', 'amountOz', 'durationMinutes')} | {'at': feed['startedAt']} if feed else None,
         'lastDiaper': {'at': diaper['startedAt'], 'kind': diaper.get('kind')} if diaper else None,
+        'lastDirtyDiaper': dirty['startedAt'] if dirty else None,
         'lastSleep': {'at': sleep['startedAt'], 'endedAt': sleep.get('endedAt')} if sleep else None,
     }
 

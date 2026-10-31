@@ -1,0 +1,16 @@
+[Unit]
+Description=Home observer: flag unusual Home Assistant data for the Jarvis page
+After=docker.service
+
+[Service]
+User=@@HA_USER@@
+# Optional: CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token` for the daily digest.
+EnvironmentFile=-/home/@@HA_USER@@/home-agent/secrets.env
+Environment=PATH=/home/@@HA_USER@@/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -u /home/@@HA_USER@@/home-agent/agent.py /home/@@HA_USER@@/home-agent/config.yaml
+Nice=10
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

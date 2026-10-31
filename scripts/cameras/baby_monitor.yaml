@@ -1,0 +1,105 @@
+# The laptop's built-in webcam and microphone as a baby monitor (BabySteps
+# dashboard). go2rtc (scripts/cameras) opens them only while someone watches.
+# The card shows the stream only while the lid is open; closed, the webcam
+# sees nothing and the microphone is muffled.
+camera:
+  - platform: ffmpeg
+    name: Baby Monitor
+    input: -rtsp_transport tcp -i rtsp://127.0.0.1:8554/baby_monitor
+
+command_line:
+  - binary_sensor:
+      name: Laptop Lid
+      unique_id: laptop_lid_open
+      # /proc/acpi is the host's, even inside the container.
+      command: cat /proc/acpi/button/lid/*/state
+      value_template: "{{ 'on' if 'open' in value else 'off' }}"
+      payload_on: "on"
+      payload_off: "off"
+      device_class: opening
+      scan_interval: 10
+
+# Sleep tracking from the analyzer container (scripts/cameras/analyzer). The
+# Baby Sleep sensor keeps history; the analysis sensor carries the details for
+# the BabySteps card and is excluded from the recorder (it changes every 5 s).
+rest:
+  - resource: http://127.0.0.1:8791/state
+    scan_interval: 5
+    timeout: 5
+    sensor:
+      - name: Baby Sleep
+        unique_id: baby_monitor_sleep
+        icon: mdi:sleep
+        value_template: "{{ value_json.state }}"
+      - name: Baby Monitor Analysis
+        unique_id: baby_monitor_analysis
+        icon: mdi:baby-face-outline
+        value_template: "{{ value_json.state }}"
+        json_attributes:
+          - paused_reason
+          - session_state
+          - video
+          - monitoring
+          - in_frame_at
+          - awake_since
+          - settling_at
+          - asleep_at
+          - fell_asleep_seconds
+          - last_sleep
+          - last_woke_at
+          - last_seen_at
+          - crying
+          - fussing
+          - last_cry
+          - last_fuss
+          - cry_seconds_last_minute
+          - movements_per_minute
+          - movements_per_minute_3m
+          - activity
+          - moving
+          - minutes
+          - events
+          - sleeps
+
+switch:
+  - platform: rest
+    name: Baby Monitoring
+    unique_id: baby_monitoring
+    resource: http://127.0.0.1:8791/monitoring
+    body_on: '{"on": true}'
+    body_off: '{"on": false}'
+    is_on_template: "{{ value_json.on }}"
+    headers:
+      Content-Type: application/json
+
+# Logging a detected sleep to BabySteps (the Sleep card's per-sleep buttons and
+# "Log all sleeps"), through the same shell_command as every other BabySteps
+# entry. Only a sleep BabySteps accepted is marked logged in the analyzer.
+rest_command:
+  baby_monitor_mark_logged:
+    url: "http://127.0.0.1:8791/sleeps/{{ id }}/logged"
+    method: POST
+
+script:
+  baby_monitor_log_sleep:
+    alias: Log a detected sleep to BabySteps
+    mode: queued
+    fields:
+      id: { description: Sleep id from sensor.baby_monitor_analysis sleeps }
+      start: { description: ISO start time }
+      end: { description: ISO end time }
+    sequence:
+      - action: shell_command.babysteps_log
+        data:
+          payload: "{{ {'type': 'sleep', 'startedAt': start, 'endedAt': end, 'source': 'baby-monitor'} }}"
+        response_variable: out
+      - variables:
+          result: >-
+            {% set text = out.stdout | default('') %}
+            {{ text | from_json if text.startswith('{') else {'ok': false, 'errors': ['BabySteps did not answer; the Home Assistant log says why.']} }}
+      - if: "{{ result.ok | default(false) }}"
+        then:
+          - action: rest_command.baby_monitor_mark_logged
+            data: { id: "{{ id }}" }
+      - stop: ""
+        response_variable: result

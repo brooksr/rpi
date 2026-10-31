@@ -1,0 +1,9 @@
+# HEAD USB action cam in PC-camera mode, looking out the office window (due west).
+# Only mode it offers over USB: 1280x720 MJPEG @ 30fps.
+# The go2rtc container (~/go2rtc/go2rtc.yaml) owns the USB device and shares it,
+# so any number of viewers work and replugging needs no restart. The _h264
+# stream is a transcode, needed for live WebRTC/HLS in the dashboard.
+camera:
+  - platform: ffmpeg
+    name: Office Window
+    input: -rtsp_transport tcp -i rtsp://127.0.0.1:8554/office_window_h264

@@ -1,0 +1,189 @@
+# Home Assistant package: read-only answers from the existing dashboard feeds.
+shell_command:
+  office_dashboard_briefing: "python3 /config/scripts/office-briefing.py '{{ payload | to_json | base64_encode }}'"
+
+automation:
+  - id: office_dashboard_questions
+    alias: Office dashboard questions
+    mode: parallel
+    max: 3
+    triggers:
+      - trigger: conversation
+        id: home_check
+        command:
+          - "[run|do|give me] [a] home check"
+          - "check [the] (house|home)"
+          - "(what is|what's) [the] home status"
+      - trigger: conversation
+        id: weather
+        command:
+          - "(what is|what's|tell me) [the] [current|local] weather [like] [right now|today]"
+          - "(how is|how's) the weather [today|right now]"
+          - "[what is|what's] [the] temperature outside"
+      - trigger: conversation
+        id: forecast
+        command:
+          - "(what is|what's|tell me) [the] [weather] forecast"
+          - "(what is|what's) [the] weather (today|this week|for the next few days)"
+      - trigger: conversation
+        id: forecast_tomorrow
+        command:
+          - "(what is|what's) [the] (weather|forecast|weather forecast) [for] tomorrow"
+          - "what will the weather be [like] tomorrow"
+      - trigger: conversation
+        id: health
+        command:
+          - "(what is|what's|tell me|check) [the] device health"
+          - "(how is|how's) [the] (laptop|raspberry pi|home server) [doing]"
+          - "[give me] [a] (device|server) health (report|check)"
+      - trigger: conversation
+        id: daytrip
+        command:
+          - "(what is|what's|tell me|how is|how's) [the] day trip [looking|weather|conditions]"
+          - "[give me] [a] day trip (report|update)"
+      - trigger: conversation
+        id: ventura
+        command:
+          - "(what is|what's|how is|how's) [the] (weather|day trip|conditions|drive) (in|to|for) ventura"
+      - trigger: conversation
+        id: malibu
+        command:
+          - "(what is|what's|how is|how's) [the] (weather|day trip|conditions|drive) (in|to|for) malibu"
+      - trigger: conversation
+        id: traffic
+        command:
+          - "(what is|what's|how is|how's|tell me) [the] [local] traffic [like|looking]"
+          - "[give me] [a] [local] (traffic|freeway) (report|update)"
+      - trigger: conversation
+        id: launch
+        command:
+          - "(when is|when's|what is|what's) [the] next [vandenberg] [rocket] launch"
+          - "tell me [about] the next [vandenberg] [rocket] launch"
+      - trigger: conversation
+        id: gas
+        command:
+          - "(where is|where's|what is|what's) [the] (best|cheapest) gas [nearby|near me]"
+          - "(what are|tell me) [the] [local] gas prices"
+      - trigger: conversation
+        id: baby_feed
+        command:
+          - "(when was|what was|tell me) [the] [baby's|@@CHILD_NAME@@'s] last (feed|feeding|bottle)"
+          - "when (did|was) (the baby|@@CHILD_NAME@@) last (eat|fed|feed)"
+          - "how long [has it been] since [the] [baby's|@@CHILD_NAME@@'s] last (feed|feeding|bottle)"
+      - trigger: conversation
+        id: baby_diaper
+        command:
+          - "(when was|what was|tell me) [the] [baby's|@@CHILD_NAME@@'s] last diaper [change]"
+          - "when (did|was) (the baby|@@CHILD_NAME@@) last (changed|have a diaper change)"
+          - "how long [has it been] since [the] [baby's|@@CHILD_NAME@@'s] last diaper [change]"
+      - trigger: conversation
+        id: baby_bath
+        command:
+          - "(when was|what was|tell me) [the] [baby's|@@CHILD_NAME@@'s] last bath"
+          - "when did (the baby|@@CHILD_NAME@@) last (bathe|have a bath)"
+          - "how long [has it been] since [the] [baby's|@@CHILD_NAME@@'s] last bath"
+      - trigger: conversation
+        id: baby_sleep
+        command:
+          - "(when was|what was|tell me) [the] [baby's|@@CHILD_NAME@@'s] last (sleep|nap)"
+          - "when did (the baby|@@CHILD_NAME@@) last (sleep|nap|wake up)"
+          - "is (the baby|@@CHILD_NAME@@) [still] (asleep|sleeping)"
+      - trigger: conversation
+        id: baby_status
+        command:
+          - "(how is|how's) (the baby|@@CHILD_NAME@@) [doing]"
+          - "(what is|what's|give me|tell me) [the] (baby|@@CHILD_NAME@@|baby steps) (status|update|briefing)"
+    actions:
+      - if: "{{ trigger.id.startswith('baby_') }}"
+        then:
+          - action: homeassistant.update_entity
+            continue_on_error: true
+            target:
+              entity_id: sensor.babysteps_status
+      - if: "{{ trigger.id.startswith('forecast') }}"
+        then:
+          - action: weather.get_forecasts
+            continue_on_error: true
+            target:
+              entity_id: weather.forecast_home
+            data:
+              type: daily
+            response_variable: forecast
+      - action: shell_command.office_dashboard_briefing
+        data:
+          payload: >-
+            {% set ids = ['weather.forecast_home', 'sensor.nws_observation',
+                'sensor.babysteps_status', 'sensor.raspberry_pi', 'sensor.pi_health',
+                'sensor.daytrip', 'sensor.freeway_conditions',
+                'sensor.vandenberg_launches', 'sensor.local_gas_prices',
+                'sensor.internet', 'sensor.h5075_001b_temperature', 'sensor.h5075_001b_humidity'] %}
+            {% set ns = namespace(sensors={}) %}
+            {% for id in ids %}
+              {% set entity = states[id] %}
+              {% if entity is not none %}
+                {% set ns.sensors = dict(ns.sensors, **{id: dict(state=entity.state, attributes=dict(entity.attributes))}) %}
+              {% endif %}
+            {% endfor %}
+            {% set ns.lights = [] %}
+            {% for light in states.light %}
+              {% set ns.lights = ns.lights + [dict(name=light.name, state=light.state)] %}
+            {% endfor %}
+            {{ dict(topic=trigger.id, sensors=ns.sensors, forecast=forecast | default({}), lights=ns.lights) }}
+        response_variable: briefing
+      - set_conversation_response: "{{ briefing.stdout | trim if briefing.returncode == 0 else 'That dashboard information is unavailable right now.' }}"
+
+  - id: office_shopping_list
+    alias: Office shopping list
+    mode: queued
+    triggers:
+      - trigger: conversation
+        id: add
+        command:
+          - "(add|put) {item} (to|on) [the|my] shopping list"
+      - trigger: conversation
+        id: read
+        command:
+          - "(what is|what's) on [the|my] shopping list"
+          - "read [me] [the|my] shopping list"
+      - trigger: conversation
+        id: remove
+        command:
+          - "(remove|check off|cross off|take) {item} (from|off) [the|my] shopping list"
+    actions:
+      - action: todo.get_items
+        target:
+          entity_id: todo.shopping_list
+        data:
+          status: needs_action
+        response_variable: list
+      - variables:
+          items: "{{ list['todo.shopping_list']['items'] | map(attribute='summary') | list }}"
+          spoken: "{{ trigger.slots.item | default('') | trim }}"
+          match: >-
+            {% set ns = namespace(found='') %}
+            {% for i in items if i | lower == spoken | lower %}{% set ns.found = i %}{% endfor %}
+            {{ ns.found }}
+      - choose:
+          - conditions: "{{ trigger.id == 'add' }}"
+            sequence:
+              - action: todo.add_item
+                target:
+                  entity_id: todo.shopping_list
+                data:
+                  item: "{{ spoken[:1] | upper ~ spoken[1:] }}"
+              - set_conversation_response: "Added {{ spoken }} to the shopping list."
+          - conditions: "{{ trigger.id == 'read' }}"
+            sequence:
+              - set_conversation_response: >-
+                  {% if items %}The shopping list has {{ items | count }} item{{ 's' if items | count != 1 }}: {{ items[:10] | join(', ') }}{{ ', and more' if items | count > 10 }}.{% else %}The shopping list is empty.{% endif %}
+          - conditions: "{{ trigger.id == 'remove' and match == '' }}"
+            sequence:
+              - set_conversation_response: "{{ spoken }} isn't on the shopping list."
+        default:
+          - action: todo.update_item
+            target:
+              entity_id: todo.shopping_list
+            data:
+              item: "{{ match }}"
+              status: completed
+          - set_conversation_response: "Checked {{ spoken }} off the shopping list."

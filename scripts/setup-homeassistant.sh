@@ -39,6 +39,12 @@ docker pull "${IMAGE}"
 
 echo "== 5/5 (Re)creating the container =="
 docker rm -f homeassistant 2>/dev/null || true
+# The user's photos and music show read-only in HA's Media tab (configuration.yaml
+# media_dirs). Office camera snapshots and timelapses live in /config/media.
+MEDIA_MOUNTS=()
+for dir in Pictures Music; do
+  [ -d "/home/${RUN_USER}/${dir}" ] && MEDIA_MOUNTS+=(-v "/home/${RUN_USER}/${dir}:/media/${dir,,}:ro")
+done
 docker run -d \
   --name homeassistant \
   --restart=unless-stopped \
@@ -47,6 +53,7 @@ docker run -d \
   -e TZ="${TZ_VAL}" \
   -v "${CONFIG_DIR}:/config" \
   -v /run/dbus:/run/dbus:ro \
+  "${MEDIA_MOUNTS[@]}" \
   --network=host \
   "${IMAGE}"
 

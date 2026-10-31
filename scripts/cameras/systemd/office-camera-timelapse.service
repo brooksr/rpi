@@ -1,0 +1,7 @@
+[Unit]
+Description=Build yesterday's office window timelapse
+
+[Service]
+Type=oneshot
+User=@@HA_USER@@
+ExecStart=/home/@@HA_USER@@/go2rtc/timelapse.sh

@@ -17,3 +17,6 @@ scripts/recipes/source.txt
 scripts/recipes/recipes.json
 scripts/recipes/images.json
 scripts/recipes/dashboard.yaml
+
+# Floor plan of the house (street address, layout): local only.
+scripts/house/
