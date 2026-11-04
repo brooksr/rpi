@@ -1,0 +1,9 @@
+{
+  "domain": "utility_usage",
+  "name": "Utility usage files",
+  "version": "1.0.0",
+  "documentation": "https://www.home-assistant.io/docs/energy/",
+  "dependencies": ["recorder"],
+  "codeowners": [],
+  "iot_class": "local_polling"
+}

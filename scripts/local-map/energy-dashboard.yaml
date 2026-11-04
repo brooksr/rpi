@@ -1,0 +1,61 @@
+# Energy: what to do now, the California grid, and home electricity, gas and
+# water from scripts/utility-usage (hourly statistics, a day or two late).
+title: Energy
+views:
+  - title: Energy
+    path: overview
+    icon: mdi:lightning-bolt
+    type: sections
+    max_columns: 3
+    sections:
+      # Full-width rows for now and the grid, then one column per utility.
+      - type: grid
+        column_span: 3
+        cards:
+          - {type: heading, heading: Right now, heading_style: title, icon: mdi:lightning-bolt}
+          - {type: 'custom:energy-now-card', hide_title: true, weather_entity: weather.forecast_home, grid_options: {columns: full, rows: auto}}
+      - type: grid
+        column_span: 3
+        cards:
+          - {type: heading, heading: California grid, heading_style: title, icon: mdi:transmission-tower}
+          - {type: 'custom:grid-card', hide_title: true, grid_options: {columns: full, rows: auto}}
+      - type: grid
+        cards:
+          - {type: heading, heading: Electricity, heading_style: title, icon: mdi:flash}
+          - {type: statistics-graph, title: kWh per day · 30 days, entities: [utility_usage:sce], stat_types: [change], period: day,
+             days_to_show: 30, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - {type: statistics-graph, title: kWh per month · 12 months, entities: [utility_usage:sce], stat_types: [change], period: month,
+             days_to_show: 365, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - type: markdown
+            grid_options: {columns: full, rows: auto}
+            content: >-
+              {% set s = 'sensor.utility_usage_sce' %}{% set t = state_attr(s, 'data_through') %}
+              <small>SCE through {{ as_datetime(t).strftime('%a %-m/%-d %-I %p') if t else 'n/a' }}{{ '' if is_state(s, 'ok') else ' (' ~ states(s) ~ ')' }}. Imported from sce.com downloads (hourly CSV or the usage Excel export) with <code>fetch_usage.py import-sce</code>.</small>
+      - type: grid
+        cards:
+          - {type: heading, heading: Gas, heading_style: title, icon: mdi:fire}
+          - {type: statistics-graph, title: CCF per day · 30 days, entities: [utility_usage:socalgas], stat_types: [change], period: day,
+             days_to_show: 30, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - {type: statistics-graph, title: CCF per month · 12 months, entities: [utility_usage:socalgas], stat_types: [change], period: month,
+             days_to_show: 365, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - type: markdown
+            grid_options: {columns: full, rows: auto}
+            content: >-
+              {% set s = 'sensor.utility_usage_socalgas' %}{% set t = state_attr(s, 'data_through') %}
+              <small>SoCalGas through {{ as_datetime(t).strftime('%a %-m/%-d %-I %p') if t else 'n/a' }}{{ '' if is_state(s, 'ok') else ' (' ~ states(s) ~ ')' }}. Fetched at 7:20 and 19:20.</small>
+      - type: grid
+        cards:
+          - {type: heading, heading: Water, heading_style: title, icon: mdi:water}
+          - type: tile
+            entity: binary_sensor.utility_usage_water_leak
+            name: Water leak
+            grid_options: {columns: full, rows: 1}
+          - {type: statistics-graph, title: Gallons per day · 30 days, entities: [utility_usage:eyeonwater], stat_types: [change], period: day,
+             days_to_show: 30, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - {type: statistics-graph, title: Gallons per month · 12 months, entities: [utility_usage:eyeonwater], stat_types: [change], period: month,
+             days_to_show: 365, chart_type: bar, hide_legend: true, grid_options: {columns: full, rows: auto}}
+          - type: markdown
+            grid_options: {columns: full, rows: auto}
+            content: >-
+              {% set s = 'sensor.utility_usage_eyeonwater' %}{% set t = state_attr(s, 'data_through') %}
+              <small>EyeOnWater through {{ as_datetime(t).strftime('%a %-m/%-d %-I %p') if t else 'n/a' }}{{ '' if is_state(s, 'ok') else ' (' ~ states(s) ~ ')' }}. The meter reports about once a day.</small>

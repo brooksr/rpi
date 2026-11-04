@@ -120,8 +120,14 @@ still play.
 - **If the Pi is down:** the TV has no DNS and no internet. On the TV, set IP and
   DNS back to Obtain automatically. On the Mac:
   `networksetup -setdnsservers Wi-Fi empty`.
-- **Known false positives:** `www.samsungotn.net` (TV firmware updates) and
-  `api.distribution.hulu.com`. Allow both for the TV:
+- **Known false positives:** `www.samsungotn.net` (TV firmware updates),
+  `api.distribution.hulu.com`, and Smart Hub's servers, without which the
+  Apps screen, app settings and app installs/updates fail:
+  `osb*.samsungqbe.com` (a regex rule; `osb-ussvc` is the US app store),
+  `lcprd1.samsungcloudsolution.net`, `notice.samsungcloudsolution.com` and
+  `apu`…`zpu.samsungelectronics.com` (a regex rule). Applied 2026-11-01; Samsung's
+  ad servers (`tvx.adgrx.com`, `config.samsungads.com`,
+  `sas.samsungcloudsolution.com`) stay blocked. To re-apply:
   ```bash
   ssh pi@raspberrypi.local 'sudo pihole-FTL sqlite3 /etc/pihole/gravity.db' < scripts/pihole-tv-allow.sql
   ssh pi@raspberrypi.local 'sudo pihole reloadlists'

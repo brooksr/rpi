@@ -1,0 +1,22 @@
+# Travel: freeway signs, closures and cameras near home, the day-trip piers,
+# and the cheapest gas nearby (cards from overview-widgets.js).
+title: Travel
+views:
+  - title: Travel
+    path: overview
+    icon: mdi:car
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - {type: heading, heading: 'Freeways: 101 & 23', heading_style: title, icon: mdi:highway}
+          - {type: 'custom:freeway-card', hide_title: true, grid_options: {columns: full, rows: auto}}
+      - type: grid
+        cards:
+          - {type: heading, heading: Day trip, heading_style: title, icon: mdi:beach}
+          - {type: 'custom:daytrip-card', hide_title: true, grid_options: {columns: full, rows: auto}}
+      - type: grid
+        cards:
+          - {type: heading, heading: Cheapest gas nearby, heading_style: title, icon: mdi:gas-station}
+          - {type: 'custom:gas-prices-card', hide_title: true, grid_options: {columns: full, rows: auto}}

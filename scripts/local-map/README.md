@@ -46,6 +46,21 @@ warning, an active shutoff, or a listed event being removed creates an HA
 persistent notification (not phone push or SMS). A failed request is
 `unavailable`, never an all-clear.
 
+## Energy page
+
+`energy-dashboard.yaml` → `dashboards/home-energy.yaml` (sidebar "Energy"; the
+`energy` path belongs to HA's built-in Energy dashboard). Full-width Energy now
+and California grid (`sensor.caiso_grid`, CAISO Today's Outlook, 5 min) rows,
+then electricity, gas and water columns with daily (30 days) and monthly (12
+months) charts from `scripts/utility-usage`, and the water leak tile.
+
+## Travel page
+
+`travel-dashboard.yaml` → `dashboards/local-travel.yaml` (sidebar "Travel"): the
+Freeways, Day trip and Cheapest gas cards, which used to be on the Overview.
+The freeway card's cameras skip ones Caltrans lists as in service but serves as
+a white "Temporarily Unavailable" card, for the next closest on that route.
+
 ## Overview cards
 
 `overview-widgets.js` adds sections to HA's generated Overview while keeping its
@@ -61,7 +76,7 @@ than a stale value.
 | | `sensor.local_air_quality`: Open-Meteo CAMS model | 15 min | No key; a model estimate, not a monitor |
 | Cheapest gas | `sensor.local_gas_prices`: Google Places (New), 3 cheapest regular within 5 mi | 1 h | `google_places_api_key`; ~720 calls/month stays in free usage |
 | Daytrip (Ventura, Malibu piers) | `sensor.daytrip`: Google Routes drive time, Open-Meteo air/sea temp, surf and wind, NOAA tides | 20 min | Same Google key with Routes API enabled; tide stations 9411189 and 9410840 |
-| California grid | `sensor.caiso_grid`: CAISO Today's Outlook feed | 5 min | No key |
+| Energy now | `sensor.caiso_grid`, `binary_sensor.utility_usage_water_leak`, `binary_sensor.cooler_air_outside`, `climate.family_room_nest`, today's forecast high, `utility_usage:*` statistics | 10 min (usage 30 min) | One banner, most urgent first: leak, CAISO alert, 4–9 PM peak, pre-cool (high ≥ 85°F, 11 AM–4 PM), open windows, grid ≥ 50% renewable 9 AM–4 PM, off-peak night. KPIs: last full day vs 30-day average. Opens the Energy page |
 | Freeways: 101 & 23 | `sensor.freeway_conditions`: Caltrans D7 CWWP2 signs, lane closures (CSV), cameras | 10 min | "In place" = crews logged on scene (10-97) and not yet gone |
 | Active fires | `sensor.fire_incidents`: Ventura County Fire incidents | 10 min | Shown only while a fire is burning; medical/alarm calls left out |
 | Earthquakes | `sensor.earthquakes`: USGS, M2.5+ within 50 mi in 24 h | 10 min | See alerts below |

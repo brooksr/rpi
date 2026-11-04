@@ -8,8 +8,11 @@ Launch Library 2 answer, refreshed every 30 minutes). From 30 minutes before a
 launch this also asks the API for that launch itself every 5 minutes, to follow
 holds and slips; with HA's 2 calls an hour that stays under the 15-an-hour limit.
 
-The window (BEFORE/AFTER) is deliberately wide until a few recordings show when
-the rocket is actually in frame. Raw recordings are kept for RAW_DAYS so they
+On the first recording (Starlink 15-18, Oct 30 2026) the minute snapshots show
+the rocket over the ridge at T+1:26, as predicted, but the video only showed it
+at T+12: it came from go2rtc's H.264 transcode, which the dashboard had kept
+open and which had fallen 11 minutes behind. Recordings now take the camera's
+own MJPEG from the capture instance. Raw recordings are kept for RAW_DAYS so they
 can be reprocessed while tuning: `launch_recorder.py process <raw dir>`.
 
 Starlink passes come from starlink.py, recomputed every 10 minutes; the next
@@ -29,8 +32,8 @@ import urllib.request
 
 import starlink
 
-BEFORE = datetime.timedelta(minutes=5)
-AFTER = datetime.timedelta(minutes=15)
+BEFORE = datetime.timedelta(minutes=1)
+AFTER = datetime.timedelta(minutes=10)
 FIRM = {'Second', 'Minute', 'Hour'}
 DONE = {'Success', 'Failure', 'Partial Failure'}
 HOME = pathlib.Path.home()
@@ -42,7 +45,7 @@ STARLINK_JSON = HOME / 'homeassistant/.starlink-trains.json'  # HA: /config/.sta
 PASS_PAD = datetime.timedelta(minutes=1)
 RAW_DAYS, OUT_DAYS = 30, 90
 IMAGE = 'alexxit/go2rtc:1.9.14-hardware'
-STREAM = 'rtsp://127.0.0.1:8554/office_window_h264'
+STREAM = 'rtsp://127.0.0.1:8556/office_window'  # capture instance, camera's MJPEG, no transcode
 API = 'https://ll.thespacedevs.com/2.3.0/launches/{}/?format=json&mode=normal'
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf'
 SPEED = 8  # timelapse speed-up
@@ -197,10 +200,21 @@ def process(raw):
         log('No usable recording')
         return
     net = datetime.datetime.fromisoformat(meta['net']).timestamp()
-    offset = parts[0]['start'] - net
-    trail_from = max(0, datetime.datetime.fromisoformat(meta.get('trail_start', meta['net'])).timestamp() - parts[0]['start'])
+    # Older recordings started earlier than BEFORE; skip what's before it.
+    begin = parts[0]['start']
+    if meta.get('kind', 'launches') == 'launches':
+        begin = max(begin, net - BEFORE.total_seconds())
+    parts = [p for p in parts if p['start'] + p['duration'] > begin]
+    if not parts:
+        log('No usable recording')
+        return
+    begin = max(begin, parts[0]['start'])
+    offset = begin - net
+    trail_from = max(0, datetime.datetime.fromisoformat(meta.get('trail_start', meta['net'])).timestamp() - begin)
     # Joining parts drops any gap between them, so times after a gap run early.
-    (raw / 'parts.txt').write_text(''.join(f"file '{p['file']}'\n" for p in parts))
+    (raw / 'parts.txt').write_text(''.join(
+        f"file '{p['file']}'\n" + (f"inpoint {begin - p['start']:.3f}\n" if i == 0 and begin > p['start'] else '')
+        for i, p in enumerate(parts)))
     out = MEDIA / meta.get('kind', 'launches') / raw.name
     out.mkdir(parents=True, exist_ok=True)
     mounts = [(raw, '/raw'), (out, '/out')]
@@ -214,7 +228,10 @@ def process(raw):
     graph = [f"[0:v]hqdn3d=3:10:6:15,split={3 if night else 2}[r][t]{'[s]' if night else ''}",
              f"[r]{clock(offset)},format=yuv420p[replay]",
              # At night, lagfun leaves a fading streak behind a plume or satellite.
-             f"[t]tmix=frames={SPEED},setpts=PTS/{SPEED},fps=30{',lagfun=decay=0.97' if night else ''},"
+             # It keeps each pixel's brightest value, chroma noise included, which
+             # turns the (already purple) night picture into purple grain; the night
+             # timelapse and trail are luma only.
+             f"[t]tmix=frames={SPEED},setpts=PTS/{SPEED},fps=30{',format=gray,lagfun=decay=0.97' if night else ''},"
              f"{clock(offset, SPEED)},format=yuv420p[lapse]"]
     outputs = ['-map', '[replay]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-movflags', '+faststart', '/out/.replay.mp4',
                '-map', '[lapse]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-movflags', '+faststart', '/out/.timelapse.mp4']
@@ -222,7 +239,9 @@ def process(raw):
         # Every frame from liftoff (or the pass's start) stacked by brightest pixel:
         # the whole arc in one picture. Written every 10 s and overwritten, so the
         # file ends as the final stack.
-        graph.append(f"[s]trim=start={trail_from:.3f},lagfun=decay=1,fps=0.1[trail]")
+        # Averaging 8 frames first keeps the stack from collecting the noise peaks.
+        graph.append(f"[s]trim=start={trail_from:.3f},tmix=frames=8,hqdn3d=4:4:6:6,format=gray,"
+                     f"lagfun=decay=1,fps=0.1[trail]")
         outputs += ['-map', '[trail]', '-q:v', '2', '-update', '1', '/out/.trail.jpg']
     log(f'Processing {raw.name} (T0 luma {yavg:.0f}, {"night" if night else "day"})')
     subprocess.run(docker('ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-i', '/raw/parts.txt',

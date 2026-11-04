@@ -9,10 +9,14 @@
 # gitignored .env; copy .env.example to .env and fill it in.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -f "${REPO_ROOT}/.env" ]; then
+  # Values already in the environment (e.g. HA_HOST=... ./install.sh) win over .env.
+  _config_env="$(export -p)"
   set -a
   # shellcheck source=/dev/null
   source "${REPO_ROOT}/.env"
   set +a
+  eval "${_config_env}"
+  unset _config_env
 fi
 
 # ---- Connection -------------------------------------------------------------

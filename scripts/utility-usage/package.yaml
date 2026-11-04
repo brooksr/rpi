@@ -1,0 +1,3 @@
+# Imports /config/utility-usage/*.json (written by fetch_usage.py on the host)
+# as hourly statistics: utility_usage:sce and utility_usage:socalgas.
+utility_usage: {}

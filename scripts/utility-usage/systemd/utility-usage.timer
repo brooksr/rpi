@@ -1,0 +1,11 @@
+[Unit]
+Description=Fetch utility usage twice a day
+
+[Timer]
+# Both sites publish yesterday's hours some time in the morning.
+OnCalendar=*-*-* 07:20,19:20
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

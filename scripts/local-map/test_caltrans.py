@@ -51,5 +51,31 @@ class CaltransTests(unittest.TestCase):
         self.assertEqual(caltrans.signs(text), [{'route': 'US-101', 'direction': 'North', 'location': 'Westlake Blvd', 'message': ['CRASH AHEAD']}])
 
 
+def camera(n, route, lat):
+    return {'cctv': {'inService': 'true', 'imageData': {'static': {'currentImageURL': f'https://cam/{n}.jpg'}},
+                     'location': {'route': route, 'locationName': f'{route} : ({n}) Cam {n}', 'direction': 'North',
+                                  'latitude': str(lat), 'longitude': '-118.85'}}}
+
+
+class CameraTest(unittest.TestCase):
+    def test_down_cameras_give_way_to_the_next_closest(self):
+        text = json.dumps({'data': [camera(1, 'SR-23', 34.181), camera(2, 'SR-23', 34.182), camera(3, 'SR-23', 34.183),
+                                    camera(4, 'US-101', 34.181)]})
+        picked = caltrans.cameras(text, (34.18, -118.85), check=lambda url: not url.endswith('/1.jpg'))
+        self.assertEqual([c['name'] for c in picked], ['Cam 4', 'Cam 2', 'Cam 3'])
+
+    def test_white_card_is_a_placeholder(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest('Pillow not installed')
+        def jpeg(color):
+            out = io.BytesIO()
+            Image.new('RGB', (320, 260), color).save(out, 'JPEG')
+            return out.getvalue()
+        self.assertTrue(caltrans.placeholder(jpeg('white')))
+        self.assertFalse(caltrans.placeholder(jpeg((90, 110, 90))))
+
+
 if __name__ == '__main__':
     unittest.main()

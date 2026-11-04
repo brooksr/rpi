@@ -1,0 +1,13 @@
+[Unit]
+Description=Fetch hourly SCE and SoCalGas usage for Home Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@@HA_USER@@
+# SCE_USERNAME, SCE_PASSWORD, SOCALGAS_USERNAME, SOCALGAS_PASSWORD (chmod 600).
+EnvironmentFile=-/home/@@HA_USER@@/utility-usage/secrets.env
+ExecStart=/home/@@HA_USER@@/utility-usage/venv/bin/python -u /home/@@HA_USER@@/utility-usage/fetch_usage.py run --site socalgas --site eyeonwater
+Nice=10
+TimeoutStartSec=30min

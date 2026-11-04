@@ -84,22 +84,30 @@ then publishes three files to
 (Media → My media → office-camera):
 
 - `replay.mp4`: real time, with a T-mm:ss / T+mm:ss clock in the corner.
-- `timelapse.mp4`: 8x, frames blended; at night, `lagfun` leaves a fading
-  streak behind the plume.
-- `trail.jpg` (night only): every frame from liftoff stacked by brightest
-  pixel, so the whole arc is in one picture.
+- `timelapse.mp4`: 8x, frames blended; at night it is black and white and
+  `lagfun` leaves a fading streak behind the plume.
+- `trail.jpg` (night only, black and white): every frame from liftoff,
+  averaged in groups of 8 and then stacked by brightest pixel, so the whole arc
+  is in one picture. Stacking colour picks up the chroma noise and turns the
+  picture purple.
 
 Launch times come from the HA Vandenberg sensor's cache
 (`/config/.vandenberg-launches.json`). From 30 minutes before NET it also
 asks Launch Library 2 for that launch every 5 minutes, which follows holds
 (a slip of more than 10 minutes during recording discards it and waits). It
-records the go2rtc H.264 stream with `-c copy` and wall-clock timestamps: the
-camera delivers about 7 fps although the stream says 25, so without them
-the video runs fast.
+records the camera's own MJPEG from the capture instance
+(`rtsp://127.0.0.1:8556/office_window`) with `-c copy` and wall-clock
+timestamps: the camera delivers 7–10 fps although the stream says more, so
+without them the video runs fast.
 
-The window is wide on purpose (`BEFORE` 5 min, `AFTER` 15 min) until a few
-recordings show when the rocket is actually in frame. Raw recordings
-(about 3.5 GB each) are kept 30 days in `~/office-camera/launches` on /data
+The window runs from T-1 to T+10 min (`BEFORE`, `AFTER`). On the first
+recording (Starlink 15-18, Oct 30 2026) the minute snapshots caught the rocket
+just over the ridge at T+1:26, as predicted below, but the video showed it at
+T+12:00 to T+13:50. It was recorded from `office_window_h264`, go2rtc's
+transcode, which the dashboard's live view had kept running all evening and
+which had fallen about 11 minutes behind; a fresh one is in sync. Don't
+record from the transcode. Raw MJPEG recordings (about 30 MB a minute in
+daylight) are kept 30 days in `~/office-camera/launches` on /data
 so they can be reprocessed while tuning:
 `python3 ~/go2rtc/launch_recorder.py process ~/office-camera/launches/<dir>`.
 Published files are kept 90 days. Processing a 20-minute window takes about

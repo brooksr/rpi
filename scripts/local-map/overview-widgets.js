@@ -99,37 +99,85 @@ function homeReadings(hass,weatherId){
 }
 
 // Current conditions for home: observed where possible, modelled otherwise.
+// A headline (icon, temperature, condition, next 24 h high/low), compact tiles,
+// and the next 24 hours from the weather entity's hourly forecast.
+const SKY={'clear-night':'🌙',cloudy:'☁️',fog:'🌫️',hail:'🌨️',lightning:'🌩️','lightning-rainy':'⛈️',partlycloudy:'⛅',
+  pouring:'🌧️',rainy:'🌦️',snowy:'❄️','snowy-rainy':'🌨️',sunny:'☀️',windy:'💨','windy-variant':'💨',exceptional:'⚠️'};
+const skyIcon=(condition,night)=>night && condition==='partlycloudy'?'☁️':SKY[condition]||'🌡️';
 class CurrentConditionsCard extends HTMLElement {
   constructor(){super();this.attachShadow({mode:'open'});}
   setConfig(config){this.config=config;this.toggleAttribute('hide-title',!!config.hide_title);}
-  getCardSize(){return 4;}
+  getCardSize(){return 6;}
   getGridOptions(){return {columns:12,rows:'auto'};}
+  disconnectedCallback(){this.unsub?.then(u=>u()).catch(()=>{});this.unsub=null;}
   set hass(hass){
-    const watched=[this.config.weather_entity,'sensor.local_air_quality','sensor.nws_observation','sensor.purpleair'].map(id=>hass.states[id]);
+    this.hassRef=hass;
+    if(!this.unsub && hass.states[this.config.weather_entity]){
+      this.unsub=hass.connection.subscribeMessage(msg=>{this.hourly=msg.forecast||[];this.render();},
+        {type:'weather/subscribe_forecast',forecast_type:'hourly',entity_id:this.config.weather_entity});
+      this.unsub.catch(()=>{this.unsub=null;});
+    }
+    const watched=[this.config.weather_entity,'sensor.local_air_quality','sensor.nws_observation','sensor.purpleair','sun.sun'].map(id=>hass.states[id]);
     if(this.rendered && watched.every((state,i)=>state===this.watched[i]))return;
-    this.watched=watched;this.rendered=true;this.hassRef=hass;this.render();
+    this.watched=watched;this.rendered=true;this.render();
   }
   render(){
-    const hass=this.hassRef, r=homeReadings(hass,this.config.weather_entity), w=r.weather?.attributes || {}, purple=hass.states['sensor.purpleair'];
-    this.shadowRoot.innerHTML=`<style>${TILE_STYLE}</style><ha-card><h2>Current conditions</h2><div class="grid" id="items"></div><div class="checked" id="checked"></div></ha-card>`;
-    const items=this.shadowRoot.querySelector('#items');
-    const tile=(label,value,note,color)=>{const item=make('section',undefined,'item');if(color)item.style.borderLeftColor=color;item.append(make('div',label,'label'),make('div',value,'value'));if(note)item.append(make('div',note,'small'));items.append(item);};
+    const hass=this.hassRef;if(!hass)return;
+    const r=homeReadings(hass,this.config.weather_entity), w=r.weather?.attributes || {}, purple=hass.states['sensor.purpleair'];
     const has=value=>value!==undefined && value!==null && !Number.isNaN(value);
+    const deg=v=>has(v)?`${Math.round(v)}°`:'—';
+    const night=hass.states['sun.sun']?.state==='below_horizon';
     const condition=r.weather?(hass.formatEntityState?.(r.weather) || r.weather.state.replace(/-/g,' ')):'Unavailable';
-    const deg=v=>has(v)?`${Math.round(v)}${r.unit}`:'—';
-    tile('Temperature',deg(r.temperature),r.temperatureSource==='nws'?`${condition} · forecast model ${deg(r.modelTemperature)}`:condition);
-    tile('Humidity',has(r.humidity)?`${Math.round(r.humidity)}%`:'—',has(r.dewPoint)?`Dew point ${deg(r.dewPoint)}`:'');
+    const now=Date.now(), hours=(this.hourly||[]).filter(h=>new Date(h.datetime).getTime()>now-3600000).slice(0,24);
+    const temps=hours.map(h=>h.temperature).filter(Number.isFinite);
+    const clock=time=>new Date(time).toLocaleTimeString([], {hour:'numeric'});
+    const at=temp=>{const h=hours.find(x=>x.temperature===temp);return h?` at ${clock(h.datetime)}`:'';};
+    const high=temps.length?Math.max(...temps):null, low=temps.length?Math.min(...temps):null;
+    this.shadowRoot.innerHTML=`<style>${TILE_STYLE}
+      .hero{display:flex;align-items:center;gap:16px;margin-bottom:14px}.sky{font-size:58px;line-height:1}
+      .temp{font-size:54px;font-weight:300;line-height:1}.cond{font-size:18px;font-weight:500;margin-top:4px;text-transform:capitalize}
+      .range{font-size:13px;opacity:.85;margin-top:3px}
+      .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+      .stat{background:#ffffff0d;border-radius:10px;padding:9px 11px;border-left:4px solid var(--c,#ffffff30)}
+      .stat .label{font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.stat .value{font-size:17px;font-weight:600;margin:2px 0}.stat .small{font-size:11.5px}
+      h3{font-size:14px;font-weight:500;opacity:.85;margin:16px 0 8px}
+      .hours{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;scrollbar-width:thin}
+      .hour{flex:0 0 54px;scroll-snap-align:start;text-align:center;border-radius:10px;padding:8px 0;background:#ffffff0a}
+      .hour.now{background:#ffffff1f}.hour .t{font-size:12px;opacity:.8}.hour .i{font-size:22px;margin:4px 0}.hour .d{font-size:15px;font-weight:600}
+      .hour .p{font-size:11px;color:#7fb7ff;min-height:14px;margin-top:2px}</style>
+      <ha-card><h2>Current conditions</h2>
+        <div class="hero"><div class="sky"></div><div><div class="temp"></div><div class="cond"></div><div class="range"></div></div></div>
+        <div class="stats" id="items"></div><h3 id="hours-title"></h3><div class="hours" id="hours"></div><div class="checked" id="checked"></div></ha-card>`;
+    const root=this.shadowRoot;
+    root.querySelector('.sky').textContent=skyIcon(r.weather?.state,night);
+    root.querySelector('.temp').textContent=has(r.temperature)?`${Math.round(r.temperature)}${r.unit}`:'—';
+    root.querySelector('.cond').textContent=condition;
+    root.querySelector('.range').textContent=high===null?'':`Next 24 h: high ${deg(high)}${at(high)} · low ${deg(low)}${at(low)}`;
+    const items=root.querySelector('#items');
+    const stat=(label,value,note,color)=>{const item=make('section',undefined,'stat');if(color)item.style.setProperty('--c',color);item.append(make('div',label,'label'),make('div',value,'value'));if(note)item.append(make('div',note,'small'));items.append(item);};
+    stat('💧 Humidity',has(r.humidity)?`${Math.round(r.humidity)}%`:'—',has(r.dewPoint)?`Dew point ${deg(r.dewPoint)}`:'');
     if(has(r.aqi)){
       const level=aqiBand(r.aqi);
-      tile('Air quality',`AQI ${Math.round(r.aqi)}`,`${AQI_NAMES[level]}${has(r.pm25)?` · PM2.5 ${r.pm25} µg/m³`:''}${r.aqiSource==='purpleair'?` · ${r.aqiSensors} PurpleAir sensor${r.aqiSensors===1?'':'s'}`:' · model'}`,AQI_COLORS[level]);
-    } else tile('Air quality','—','Air quality feeds unavailable','#aaa');
+      stat('🌬️ Air',`AQI ${Math.round(r.aqi)}`,`${AQI_NAMES[level]}${has(r.pm25)?` · PM2.5 ${r.pm25}`:''}`,AQI_COLORS[level]);
+    } else stat('🌬️ Air','—','Feeds unavailable','#aaa');
     const uv=r.uv;
-    tile('UV index',has(uv)?`${Math.round(uv)}`:'—',has(uv)?band(uv,[2.5,5.5,7.5,10.5],['Low','Moderate','High','Very high','Extreme']):'',has(uv)?band(uv,[2.5,5.5,7.5,10.5],AQI_COLORS):undefined);
-    tile('Wind',has(w.wind_speed)?`${Math.round(w.wind_speed)} ${w.wind_speed_unit}`:'—',[has(w.wind_bearing)?`From ${COMPASS[Math.round(w.wind_bearing/45)%8]}`:'',has(w.wind_gust_speed)?`gusts ${Math.round(w.wind_gust_speed)}`:''].filter(Boolean).join(' · '));
-    tile('Pressure',has(w.pressure)?`${w.pressure} ${w.pressure_unit}`:'—',has(w.cloud_coverage)?`Cloud cover ${Math.round(w.cloud_coverage)}%`:'');
-    const temperatureNote=r.temperatureSource==='nws'?`Observed: NWS Thousand Oaks station, ${localTime(r.observedAt)}`:`Weather: Met.no model, ${localTime(r.weather?.last_updated)}`;
-    const airNote=r.aqiSource==='purpleair'?`Air: PurpleAir (EPA-corrected), ${localTime(purple.attributes.checked_at)}`:`Air: Open-Meteo model${purple?.state==='needs_key'?' (add a PurpleAir key for local sensors)':''}`;
-    this.shadowRoot.querySelector('#checked').textContent=`${temperatureNote} · ${airNote}`;
+    stat('🔆 UV',has(uv)?`${Math.round(uv)}`:'—',has(uv)?band(uv,[2.5,5.5,7.5,10.5],['Low','Moderate','High','Very high','Extreme']):'',has(uv)?band(uv,[2.5,5.5,7.5,10.5],AQI_COLORS):undefined);
+    stat('🧭 Wind',has(w.wind_speed)?`${Math.round(w.wind_speed)} ${w.wind_speed_unit}`:'—',[has(w.wind_bearing)?`From ${COMPASS[Math.round(w.wind_bearing/45)%8]}`:'',has(w.wind_gust_speed)?`gusts ${Math.round(w.wind_gust_speed)}`:''].filter(Boolean).join(' · '));
+    stat('☁️ Clouds',has(w.cloud_coverage)?`${Math.round(w.cloud_coverage)}%`:'—','Cloud cover');
+    stat('⏲️ Pressure',has(w.pressure)?`${w.pressure}`:'—',w.pressure_unit||'');
+    root.querySelector('#hours-title').textContent=hours.length?'Next 24 hours':'Hourly forecast loading…';
+    const strip=root.querySelector('#hours');
+    hours.forEach((h,i)=>{
+      const when=new Date(h.datetime), hourNight=when.getHours()<6 || when.getHours()>=19, rain=h.precipitation_probability ?? h.precipitation;
+      const current=when.getTime()<=now && now<when.getTime()+3600000;
+      const cell=make('div',undefined,`hour${current?' now':''}`);
+      cell.append(make('div',current?'Now':clock(h.datetime).replace(' ',''),'t'),make('div',skyIcon(h.condition,hourNight),'i'),
+        make('div',deg(h.temperature),'d'),make('div',has(rain) && rain>0?(h.precipitation_probability!=null?`${Math.round(rain)}%`:`${rain} ${w.precipitation_unit||''}`.trim()):'','p'));
+      strip.append(cell);
+    });
+    const temperatureNote=r.temperatureSource==='nws'?`Observed: NWS Thousand Oaks station, ${localTime(r.observedAt)} (model ${deg(r.modelTemperature)})`:`Weather: Met.no model, ${localTime(r.weather?.last_updated)}`;
+    const airNote=r.aqiSource==='purpleair'?`Air: PurpleAir (EPA-corrected, ${r.aqiSensors} sensor${r.aqiSensors===1?'':'s'}), ${localTime(purple.attributes.checked_at)}`:`Air: Open-Meteo model${purple?.state==='needs_key'?' (add a PurpleAir key for local sensors)':''}`;
+    root.querySelector('#checked').textContent=`${temperatureNote} · ${airNote} · Hourly: Met.no`;
   }
 }
 if(!customElements.get('current-conditions-card'))customElements.define('current-conditions-card',CurrentConditionsCard);
@@ -237,6 +285,8 @@ if(!customElements.get('daytrip-card'))customElements.define('daytrip-card',Dayt
 // California ISO grid status, demand against today's peak, and the fuel mix.
 const FUELS=[['Solar','currentSolar','#ffe28a'],['Wind','currentWind','#9dd3a8'],['Batteries','currentBatteries','#d7a9ff'],['Hydro','currentLargeHydro','#9fd3ff'],
   ['Geothermal & bio','',"#c9a27b"],['Nuclear','currentNuclear','#ff9fc8'],['Natural gas','currentNaturalGas','#ffb56b'],['Imports','currentImports','#aaaaaa']];
+const gridSupply=a=>FUELS.map(([label,key,color])=>[label,key?a[key]:[a.currentGeothermal,a.currentBiomass,a.currentBiogas,a.currentSmallHydro].reduce((x,y)=>x+(y||0),0),color]).filter(([,v])=>v>0);
+const renewablesPct=a=>{const total=gridSupply(a).reduce((x,[,v])=>x+v,0);return total&&Number.isFinite(a.currentRenewables)?Math.round(a.currentRenewables/total*100):null;};
 class GridCard extends HTMLElement {
   constructor(){super();this.attachShadow({mode:'open'});}
   setConfig(config){this.config=config;this.toggleAttribute('hide-title',!!config.hide_title);}
@@ -257,9 +307,8 @@ class GridCard extends HTMLElement {
     tile('Grid status',live?g.state:'Unavailable',live&&g.state==='Normal'?'No Flex Alert or emergency':live?'Check CAISO for details':'CAISO feed unreachable',!live?'#aaa':g.state==='Normal'?'#9dd3a8':'#ff7b7b');
     const peakTime=a.todayForecastPeakDemandTS?`${Number(a.todayForecastPeakDemandTS.slice(8,10))%12||12}${Number(a.todayForecastPeakDemandTS.slice(8,10))<12?' AM':' PM'}`:'';
     tile('Demand now',gw(a.CurrentSystemDemand),Number.isFinite(a.todayForecastPeakDemand)?`Peak ${gw(a.todayForecastPeakDemand)}${peakTime?` around ${peakTime}`:''}`:'');
-    const supply=FUELS.map(([label,key,color])=>[label,key?a[key]:[a.currentGeothermal,a.currentBiomass,a.currentBiogas,a.currentSmallHydro].reduce((x,y)=>x+(y||0),0),color]).filter(([,v])=>v>0);
-    const total=supply.reduce((x,[,v])=>x+v,0);
-    tile('Renewables',total&&Number.isFinite(a.currentRenewables)?`${Math.round(a.currentRenewables/total*100)}%`:'—',`Reserve ${gw(a.Current_reserve)}`);
+    const supply=gridSupply(a), total=supply.reduce((x,[,v])=>x+v,0), pct=renewablesPct(a);
+    tile('Renewables',pct===null?'—':`${pct}%`,`Reserve ${gw(a.Current_reserve)}`);
     const bar=this.shadowRoot.querySelector('#bar'), legend=this.shadowRoot.querySelector('#legend');
     bar.setAttribute('aria-label','Current supply by source');
     for(const [label,value,color] of supply){
@@ -1063,6 +1112,113 @@ class BabySleepCard extends HTMLElement {
 }
 if(!customElements.get('baby-sleep-card'))customElements.define('baby-sleep-card',BabySleepCard);
 
+// One banner with the most useful thing to do with energy right now, the other
+// tips that also apply, and the last full day of use against its 30-day average.
+// Rules, most urgent first: water leak, CAISO alert, the 4–9 PM peak, pre-cooling
+// on a hot afternoon, cooler air outside, a clean midday grid, off-peak night.
+// The household is on SCE's tiered rate, so timing is about the grid, not price.
+const USAGE_KPIS=[['sce','Electricity','kWh',0],['socalgas','Gas','CCF',2],['eyeonwater','Water','gal',0]];
+const PRECOOL_HIGH_F=85, PRECOOL_INSIDE_F=72, CLEAN_GRID_PCT=50;
+class EnergyNowCard extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'});}
+  setConfig(config){this.config=config;this.toggleAttribute('hide-title',!!config.hide_title);}
+  getCardSize(){return 5;}
+  getGridOptions(){return {columns:12,rows:'auto'};}
+  connectedCallback(){if(this._hass)this.start();}
+  disconnectedCallback(){clearInterval(this.timer);this.timer=null;this.unsub?.then(u=>u()).catch(()=>{});this.unsub=null;}
+  set hass(hass){
+    this._hass=hass;this.start();
+    const ids=['binary_sensor.utility_usage_water_leak','sensor.caiso_grid','binary_sensor.cooler_air_outside',this.climate(),'sensor.cooling_indoor_temperature'];
+    // Re-render on those entities and every 10 minutes, since the rules follow the clock.
+    const key=ids.map(id=>hass.states[id]?.last_updated).join()+Math.floor(Date.now()/600000);
+    if(key===this.key)return;this.key=key;this.render();
+  }
+  climate(){return this.config?.climate_entity||'climate.family_room_nest';}
+  refresh(){this.key=null;if(this._hass)this.hass=this._hass;}
+  start(){
+    if(!this.timer){this.loadKpis();this.timer=setInterval(()=>{this.loadKpis();},30*60000);}
+    const weather=this.config?.weather_entity||'weather.forecast_home';
+    if(!this.unsub && this._hass.states[weather]){
+      this.unsub=this._hass.connection.subscribeMessage(msg=>{this.forecast=msg.forecast||[];this.refresh();},
+        {type:'weather/subscribe_forecast',forecast_type:'daily',entity_id:weather});
+      this.unsub.catch(()=>{this.unsub=null;});
+    }
+  }
+  async loadKpis(){
+    const end=new Date();end.setHours(0,0,0,0);const start=new Date(end);start.setDate(start.getDate()-31);
+    try{
+      const res=await this._hass.callWS({type:'recorder/statistics_during_period',start_time:start.toISOString(),end_time:end.toISOString(),
+        statistic_ids:USAGE_KPIS.map(([site])=>`utility_usage:${site}`),period:'day',types:['change']});
+      this.kpis=USAGE_KPIS.map(([site,label,unit,digits])=>{
+        // The recorder also returns the day in progress; keep full days only.
+        const rows=(res[`utility_usage:${site}`]||[]).filter(r=>Number.isFinite(r.change) && new Date(r.start)<end);
+        if(!rows.length)return null;
+        const last=rows.at(-1), prior=rows.slice(0,-1).filter(r=>r.change>0);
+        return {label,unit,digits,value:last.change,day:new Date(last.start),avg:prior.length?prior.reduce((x,r)=>x+r.change,0)/prior.length:null};
+      }).filter(Boolean);
+    }catch(e){this.kpis=[];}
+    this.refresh();
+  }
+  tips(){
+    const h=this._hass, st=id=>h.states[id], num=v=>{const n=parseFloat(v);return Number.isFinite(n)?n:null;};
+    const now=new Date(), hour=now.getHours()+now.getMinutes()/60, tips=[];
+    const grid=st('sensor.caiso_grid'), live=grid && !['unavailable','unknown'].includes(grid.state), pct=live?renewablesPct(grid.attributes):null;
+    const toF=t=>t===null?null:(h.config.unit_system?.temperature==='°C'?t*9/5+32:t);
+    const deg=t=>`${Math.round(t)}°`;
+    const day=(this.forecast||[])[0], high=toF(num(day?.temperature));
+    const nest=st(this.climate()), inside=toF(num(nest?.attributes.current_temperature)) ?? toF(num(st('sensor.cooling_indoor_temperature')?.state));
+    const cooler=st('binary_sensor.cooler_air_outside');
+    if(st('binary_sensor.utility_usage_water_leak')?.state==='on')
+      tips.push(['bad','💧','Water leak','The water meter reports continuous flow. Check toilets, faucets and irrigation; EyeOnWater shows when it started.']);
+    if(live && grid.state!=='Normal')
+      tips.push(['bad','⚠️',`Grid: ${grid.state}`,'CAISO is asking for conservation. Hold the dishwasher, laundry and EV charging, and set the thermostat a few degrees warmer, especially 4–9 PM.']);
+    if(hour>=16 && hour<21)
+      tips.push(['warn','⏳','Peak hours until 9 PM','Demand is highest and the grid least renewable. Run the dishwasher, laundry and EV charging after 9 PM.']);
+    if(high!==null && high>=PRECOOL_HIGH_F && hour>=11 && hour<16 && (inside===null || inside>PRECOOL_INSIDE_F-1))
+      tips.push(['info','❄️','Pre-cool now',`High of ${deg(high)} today. Cool the house to about ${PRECOOL_INSIDE_F}° before 4 PM, then let it coast through the peak.`]);
+    if(cooler?.state==='on'){
+      const o=toF(num(cooler.attributes.outdoor_temperature)), i=toF(num(cooler.attributes.indoor_temperature));
+      tips.push(['good','🪟','Open the windows',`${o!==null?deg(o):'Cooler'} outside${i!==null?` vs ${deg(i)} inside`:''}. Turn the A/C off and let the cooler air in.`]);
+    }
+    if(live && grid.state==='Normal' && hour>=9 && hour<16 && pct!==null && pct>=CLEAN_GRID_PCT)
+      tips.push(['good','☀️','Good time to run appliances',`The grid is ${pct}% renewable. Run the dishwasher, laundry or EV charging now.`]);
+    if(!tips.length)tips.push(hour>=21 || hour<7
+      ? ['ok','🌙','Off-peak','Fine to run appliances; demand is low. Sunny middays (10 AM–3 PM) are cleaner still.']
+      : ['ok','✅','Nothing to do now',hour<9?'The cleanest power is usually 10 AM–3 PM.':'Peak hours start at 4 PM.']);
+    return {tips,pct};
+  }
+  render(){
+    if(!this._hass)return;
+    const {tips,pct}=this.tips(), [first,...rest]=tips;
+    this.shadowRoot.innerHTML=`<style>${TILE_STYLE}
+      .banner{display:flex;gap:12px;align-items:flex-start;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg);border:1px solid var(--edge)}
+      .banner .icon{font-size:28px;line-height:1}.banner h3{margin:0 0 4px;font-size:19px}.banner p{margin:0;font-size:14px;opacity:.9}
+      .bad{--bg:#5c1f24;--edge:#ff7b7b}.warn{--bg:#4d3517;--edge:#ffb56b}.info{--bg:#1b3550;--edge:#7fb7ff}.good{--bg:#1d3b26;--edge:#9dd3a8}.ok{--bg:#ffffff10;--edge:#ffffff30}
+      .more{margin:0 0 12px;padding:0;list-style:none;font-size:14px}.more li{padding:4px 0}.more b{font-weight:600}
+      .foot{display:flex;justify-content:space-between;gap:10px;font-size:12px;opacity:.8;margin-top:12px}.foot a{cursor:pointer}</style>
+      <ha-card><h2>${this.config?.title||'Energy now'}</h2>
+        <div class="banner ${first[0]}"><div class="icon">${first[1]}</div><div><h3></h3><p></p></div></div>
+        <ul class="more"></ul><div class="grid" id="items"></div>
+        <div class="foot"><span>Usage arrives a day or two late</span><a id="open">Energy page ›</a></div></ha-card>`;
+    const root=this.shadowRoot;
+    root.querySelector('.banner h3').textContent=first[2];root.querySelector('.banner p').textContent=first[3];
+    for(const [,icon,title,text] of rest){const li=make('li');li.append(`${icon} `,make('b',title),` · ${text}`);root.querySelector('.more').append(li);}
+    const items=root.querySelector('#items');
+    const tile=(label,value,note,color)=>{const item=make('section',undefined,'item');if(color)item.style.borderLeftColor=color;item.append(make('div',label,'label'),make('div',value,'value'));if(note)item.append(make('div',note,'small'));items.append(item);};
+    tile('Grid now',pct===null?'—':`${pct}% renewable`,'CAISO fuel mix',pct===null?'#aaa':pct>=CLEAN_GRID_PCT?'#9dd3a8':'#ffb56b');
+    for(const k of this.kpis||[]){
+      const ratio=k.avg?k.value/k.avg:null, fmt=v=>v.toLocaleString(undefined,{maximumFractionDigits:k.digits,minimumFractionDigits:k.digits});
+      const when=k.day.toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'});
+      tile(`${k.label} · ${when}`,`${fmt(k.value)} ${k.unit}`,k.avg?`30-day avg ${fmt(k.avg)}${ratio>=1.3?` · ${Math.round((ratio-1)*100)}% above`:''}`:'',
+        ratio===null?undefined:ratio>=1.3?'#ffb56b':ratio<=0.9?'#9dd3a8':'#7fb7ff');
+    }
+    const link=this.config?.link||'/home-energy/overview', open=root.querySelector('#open');
+    if(location.pathname.startsWith(link.split('/').slice(0,2).join('/')))open.remove();  // already on the Energy page
+    else open.addEventListener('click',()=>{history.pushState(null,'',link);window.dispatchEvent(new CustomEvent('location-changed'));});
+  }
+}
+if(!customElements.get('energy-now-card'))customElements.define('energy-now-card',EnergyNowCard);
+
 // Register before the built-in Overview strategy is imported. The generated
 // result stays native Lovelace, so HA supplies entities, forecasts and layout.
 customElements.whenDefined('home-overview-view-strategy').then(() => {
@@ -1083,9 +1239,8 @@ customElements.whenDefined('home-overview-view-strategy').then(() => {
       {condition:'state',entity:'sensor.power_shutoff',state:['under_consideration','power_shutoff']}]}];
     const now=[card('local-warnings-card',{visibility:warningsActive}),card('fire-incidents-card',{visibility:[{condition:'numeric_state',entity:'sensor.fire_incidents',above:0}]}),
       card('earthquake-card',{visibility:[{condition:'numeric_state',entity:'sensor.earthquakes',above:0}]})], today=[card('today-card',{hide_title:true})];
-    now.push({type:'conditional',conditions:[{condition:'state',entity:'binary_sensor.cooler_air_outside',state:'on'}],
-      card:{type:'markdown',title:'ℹ️ Cooler air outside',content:"Inside: **{{ states('sensor.cooling_indoor_temperature') | float(0) | round(1) }}°F** · Outside: **{{ states('sensor.cooling_outdoor_temperature') | float(0) | round(1) }}°F**. It is cooler outside now.",
-        grid_options:{columns:12,rows:'auto'}},grid_options:{columns:12,rows:'auto'}});
+    // energy-now-card also covers cooler air outside ("Open the windows").
+    now.push(card('energy-now-card',{weather_entity:weatherId}));
     if(weatherId){
       const features=hass.states[weatherId]?.attributes.supported_features ?? 1;
       const forecastType=features & 1 ? 'daily' : features & 2 ? 'hourly' : 'twice_daily';
@@ -1098,11 +1253,7 @@ customElements.whenDefined('home-overview-view-strategy').then(() => {
       group('Today','mdi:calendar-today',today),
       group('Baby care','mdi:baby-face-outline',[card('baby-care-card',{weather_entity:weatherId,hide_title:true})]),
       group('Recipe of the day','mdi:silverware-fork-knife',[card('recipe-card',{hide_title:true})]),
-      group('Freeways: 101 & 23','mdi:highway',[card('freeway-card',{hide_title:true})]),
-      group('Day trip','mdi:beach',[card('daytrip-card',{hide_title:true})]),
       group('Vandenberg launches','mdi:rocket-launch',[card('launch-card',{hide_title:true})]),
-      group('Cheapest gas nearby','mdi:gas-station',[card('gas-prices-card',{hide_title:true})]),
-      group('California grid','mdi:transmission-tower',[card('grid-card',{hide_title:true})]),
     ];
     // HA's own sections (favorites, areas) join Summaries in the sidebar when it
     // is shown; on one column they stay at the bottom as before.

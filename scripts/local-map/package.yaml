@@ -2,7 +2,7 @@ local_map: {}
 frontend:
   extra_module_url:
     - /local/local-map/local-map-card.js?v=5
-    - /local/local-map/overview-widgets.js?v=37
+    - /local/local-map/overview-widgets.js?v=46
 lovelace:
   dashboards:
     family-calendar:
@@ -19,6 +19,22 @@ lovelace:
       show_in_sidebar: true
       require_admin: false
       filename: dashboards/local-map.yaml
+    # Not "energy": that path is HA's built-in Energy dashboard.
+    home-energy:
+      mode: yaml
+      title: Energy
+      icon: mdi:lightning-bolt
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/home-energy.yaml
+    # Dashboard paths need a hyphen.
+    local-travel:
+      mode: yaml
+      title: Travel
+      icon: mdi:car
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/local-travel.yaml
 rest:
   # Latest observation from NWS station TO (Thousand Oaks, Moorpark Rd), about
   # a mile from home. Values are SI (°C, %, km/h); the card converts them.
@@ -231,7 +247,8 @@ command_line:
       name: Freeway Conditions
       unique_id: local_map_freeway_conditions
       command: python3 /config/scripts/local-caltrans.py @@HOME_LAT@@ @@HOME_LON@@
-      command_timeout: 60
+      # Caltrans' feeds take 5-25 s each (fetched together) plus camera checks.
+      command_timeout: 90
       scan_interval: 600
       value_template: '{{ value_json.status }}'
       json_attributes:

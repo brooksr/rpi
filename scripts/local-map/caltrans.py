@@ -11,6 +11,7 @@ import math
 import sys
 import time
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 import urllib.request
 
 FEEDS = 'https://cwwp2.dot.ca.gov/data/d7'
@@ -82,7 +83,30 @@ def closures(text, now):
     return in_place[:8], scheduled[:8], len(scheduled)
 
 
-def cameras(text, home, per_route=2):
+def placeholder(image):
+    """Caltrans serves a white "Temporarily Unavailable" card, with a fresh date
+    bar, for cameras that are down but still listed in service. Without Pillow,
+    assume the image is live."""
+    try:
+        from PIL import Image
+        picture = Image.open(io.BytesIO(image)).convert('L')
+    except Exception:
+        return False
+    width, height = picture.size
+    counts = picture.crop((0, 0, width, int(height * 0.8))).histogram()  # above the date bar
+    return sum(counts[236:]) / max(sum(counts), 1) > 0.6
+
+
+def live(url):
+    try:
+        request = urllib.request.Request(url, headers={'User-Agent': 'HomeAssistant-LocalMap/1.0'})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return not placeholder(response.read())
+    except Exception:
+        return False
+
+
+def cameras(text, home, per_route=2, check=live, max_checks=10):
     found = []
     for item in json.loads(text)['data']:
         camera = item['cctv']
@@ -93,7 +117,12 @@ def cameras(text, home, per_route=2):
             found.append({'route': place['route'], 'name': place['locationName'].split(':', 1)[-1].split(')', 1)[-1].strip(),
                           'direction': place['direction'], 'image': image, 'miles': round(miles(home, lat, lon), 1)})
     found.sort(key=lambda c: c['miles'])
-    return [c for route in ROUTES for c in [c for c in found if c['route'] == route][:per_route]]
+    # Nearest working cameras per route; down ones give way to the next closest.
+    # The nearest few per route are checked at once to stay inside the sensor timeout.
+    candidates = [c for route in ROUTES for c in [c for c in found if c['route'] == route][:max_checks // len(ROUTES)]]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        working = dict(zip((c['image'] for c in candidates), pool.map(lambda c: check(c['image']), candidates)))
+    return [c for route in ROUTES for c in [c for c in candidates if c['route'] == route and working[c['image']]][:per_route]]
 
 
 def main():
@@ -104,11 +133,19 @@ def main():
     sources = [('signs', lambda: {'signs': signs(fetch('cms/cmsStatusD07.json'))}),
                ('closures', lambda: dict(zip(('in_place', 'scheduled', 'scheduled_count'), closures(fetch('lcs/lcsStatusD07.csv'), now)))),
                ('cameras', lambda: {'cameras': cameras(fetch('cctv/cctvStatusD07.json'), home)})]
-    for name, read in sources:
+    def attempt(read):
         try:
-            result.update(read())
+            return read(), None
         except Exception as error:
-            result['errors'][name] = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+            return None, f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+
+    # The three feeds are large and slow (5-25 s each); fetch them together.
+    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+        for (name, _), (value, error) in zip(sources, pool.map(lambda source: attempt(source[1]), sources)):
+            if error:
+                result['errors'][name] = error
+            else:
+                result.update(value)
     if len(result['errors']) == len(sources):
         result['status'] = 'unavailable'
     print(json.dumps(result))
