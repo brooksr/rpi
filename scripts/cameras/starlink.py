@@ -34,6 +34,9 @@ STEP = 30  # seconds
 # 17 px a degree; the horizon sits near mid-frame.
 CAMERA_LEFT, CAMERA_RIGHT, CAMERA_TOP = 233, 305, 21  # azimuth, azimuth, elevation (degrees)
 CAMERA_BOTTOM = 3  # the ridge line
+# A spread-out batch can keep one or two satellites in view for most of an hour;
+# record only this long around the moment the most are in view.
+CAMERA_SPAN = datetime.timedelta(minutes=8)
 EARTH_RADIUS = 6378.137
 MU = 398600.4418
 # Spelled out: the announcement is spoken.
@@ -185,11 +188,18 @@ def passes(trains_by_launch, observer, start, hours=36):
                 top = max(seen)
                 if current is None:
                     current = {'train': launch, 'start': when, 'start_azimuth': top[1], 'peak': when,
-                               'max_elevation': top[0], 'peak_azimuth': top[1], 'satellites': len(seen), 'in_camera': False}
+                               'max_elevation': top[0], 'peak_azimuth': top[1], 'satellites': len(seen), 'in_camera': False,
+                               'camera_start': None, 'camera_end': None, 'camera_peak': None, 'camera_count': 0}
                 if top[0] > current['max_elevation']:
                     current.update(peak=when, max_elevation=top[0], peak_azimuth=top[1])
-                current.update(end=when, end_azimuth=top[1], satellites=max(current['satellites'], len(seen)),
-                               in_camera=current['in_camera'] or any(in_camera(a, e) for e, a in seen))
+                current.update(end=when, end_azimuth=top[1], satellites=max(current['satellites'], len(seen)))
+                # A long train can be up for 25 minutes but cross the camera's
+                # narrow view for only part of that; that part is what gets recorded.
+                inside = sum(in_camera(a, e) for e, a in seen)
+                if inside:
+                    current.update(in_camera=True, camera_start=current['camera_start'] or when, camera_end=when)
+                if inside > current['camera_count']:
+                    current.update(camera_peak=when, camera_count=inside)
             elif current and (when - current['end']).total_seconds() > PASS_GAP:
                 found.append(current)
                 current = None
@@ -197,6 +207,9 @@ def passes(trains_by_launch, observer, start, hours=36):
             found.append(current)
     found.sort(key=lambda p: p['start'])
     for p in found:
+        if p['camera_peak']:
+            p.update(camera_start=max(p['camera_start'], p['camera_peak'] - CAMERA_SPAN / 2),
+                     camera_end=min(p['camera_end'], p['camera_peak'] + CAMERA_SPAN / 2))
         p.update(max_elevation=round(p['max_elevation']), start_direction=compass(p['start_azimuth']),
                  peak_direction=compass(p['peak_azimuth']), end_direction=compass(p['end_azimuth']))
         for key in ('start_azimuth', 'peak_azimuth', 'end_azimuth'):
@@ -206,7 +219,7 @@ def passes(trains_by_launch, observer, start, hours=36):
 
 def summary(found, train_names, now, error=None):
     """The JSON Home Assistant reads: upcoming passes and the next one to announce."""
-    rows = [{**p, 'start': p['start'].isoformat(), 'peak': p['peak'].isoformat(), 'end': p['end'].isoformat()}
+    rows = [{**p, **{key: p[key] and p[key].isoformat() for key in ('start', 'peak', 'end', 'camera_start', 'camera_peak', 'camera_end')}}
             for p in sorted(found, key=lambda p: p['start']) if p['end'] > now]
     # Passes that only skim the camera's corner are recorded but not announced.
     alert = next((row for row in rows if row['max_elevation'] >= MIN_ELEVATION), None)

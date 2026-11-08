@@ -77,7 +77,10 @@ def train_event(found):
     recomputed time for the same pass isn't recorded twice."""
     return {'id': f'starlink-{found["train"]}', 'kind': 'starlink', 'status': 'Visible',
             'name': f'Starlink train | Starlink-train-{found["train"].replace("#", "-")}',
-            'net': found['peak'], 'start': found['start'], 'end': found['end']}
+            # Only the part of the pass inside the camera's view; T0 is when the
+            # most satellites are in it.
+            'net': found.get('camera_peak') or found['peak'], 'start': found.get('camera_start') or found['start'],
+            'end': found.get('camera_end') or found['end']}
 
 
 def window(event):
@@ -202,11 +205,11 @@ def process(raw):
         log('No usable recording')
         return
     net = datetime.datetime.fromisoformat(meta['net']).timestamp()
-    # Older recordings started earlier than BEFORE; skip what's before it.
-    begin = parts[0]['start']
-    if meta.get('kind', 'launches') == 'launches':
-        begin = max(begin, net - BEFORE.total_seconds())
-    parts = [p for p in parts if p['start'] + p['duration'] > begin]
+    # Keep only the event's window: older launch recordings started earlier
+    # than BEFORE, and a reprocess may narrow a train's window.
+    begin = max(parts[0]['start'], datetime.datetime.fromisoformat(meta['start']).timestamp())
+    finish = datetime.datetime.fromisoformat(meta['end']).timestamp()
+    parts = [p for p in parts if p['start'] + p['duration'] > begin and p['start'] < finish]
     if not parts:
         log('No usable recording')
         return
@@ -216,6 +219,7 @@ def process(raw):
     # Joining parts drops any gap between them, so times after a gap run early.
     (raw / 'parts.txt').write_text(''.join(
         f"file '{p['file']}'\n" + (f"inpoint {begin - p['start']:.3f}\n" if i == 0 and begin > p['start'] else '')
+        + (f"outpoint {finish - p['start']:.3f}\n" if finish < p['start'] + p['duration'] else '')
         for i, p in enumerate(parts)))
     out = MEDIA / meta.get('kind', 'launches') / raw.name
     out.mkdir(parents=True, exist_ok=True)
@@ -246,7 +250,9 @@ def process(raw):
                      f"lagfun=decay=1,fps=0.1[trail]")
         outputs += ['-map', '[trail]', '-q:v', '2', '-update', '1', '/out/.trail.jpg']
     log(f'Processing {raw.name} (T0 luma {yavg:.0f}, {"night" if night else "day"})')
-    subprocess.run(docker('ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-i', '/raw/parts.txt',
+    # explode: drop a damaged JPEG instead of smearing it into the video.
+    subprocess.run(docker('ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-err_detect', 'explode',
+                          '-f', 'concat', '-i', '/raw/parts.txt',
                           '-filter_complex', ';'.join(graph), *outputs, mounts=mounts), check=True)
     for name in ('replay.mp4', 'timelapse.mp4', 'trail.jpg'):
         if (out / f'.{name}').exists():

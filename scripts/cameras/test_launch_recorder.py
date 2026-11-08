@@ -38,6 +38,14 @@ class WindowTest(unittest.TestCase):
         self.assertEqual(launch_recorder.window(event), (t - launch_recorder.PASS_PAD, t + datetime.timedelta(minutes=6) + launch_recorder.PASS_PAD))
         self.assertTrue(launch_recorder.folder_name(event).endswith('_Starlink-train-2026-242-2'))
 
+    def test_train_records_only_its_time_in_camera(self):
+        t = datetime.datetime(2026, 11, 1, 2, 30, tzinfo=UTC)
+        minutes = lambda m: t + datetime.timedelta(minutes=m)
+        event = launch_recorder.train_event({'train': '2026-246', 'start': t, 'peak': minutes(10), 'end': minutes(25),
+                                             'camera_start': minutes(14), 'camera_peak': minutes(16), 'camera_end': minutes(19)})
+        self.assertEqual(event['net'], minutes(16))
+        self.assertEqual(launch_recorder.window(event), (minutes(14) - launch_recorder.PASS_PAD, minutes(19) + launch_recorder.PASS_PAD))
+
 
 class FolderTest(unittest.TestCase):
     def test_local_time_and_mission(self):

@@ -70,6 +70,17 @@ class PassTest(unittest.TestCase):
             self.assertLessEqual(p['start'], p['peak'])
             self.assertLessEqual(p['peak'], p['end'])
             self.assertIn('in_camera', p)
+            if p['in_camera']:
+                # The recorded part sits inside the pass.
+                self.assertLessEqual(p['start'], p['camera_start'])
+                self.assertLessEqual(p['camera_start'], p['camera_end'])
+                self.assertLessEqual(p['camera_end'], p['end'])
+                self.assertLessEqual(p['camera_start'], p['camera_peak'])
+                self.assertLessEqual(p['camera_peak'], p['camera_end'])
+                self.assertLessEqual(p['camera_end'] - p['camera_start'], starlink.CAMERA_SPAN)
+            else:
+                self.assertIsNone(p['camera_start'])
+        self.assertTrue(any(p['in_camera'] for p in found))
         summary = starlink.summary(found, ['2026-242'], EPOCH)
         announced = [p for p in found if p['max_elevation'] >= starlink.MIN_ELEVATION]
         self.assertEqual(summary['alert']['start'], min(announced, key=lambda p: p['start'])['start'].isoformat())

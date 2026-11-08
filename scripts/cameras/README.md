@@ -136,9 +136,11 @@ The passes go to `/config/.starlink-trains.json`, read by
 `automation.starlink_train_announcement` speaks on the tablet 5 minutes
 before the next one (05:00–21:00, like the launch announcement). Each pass
 that crosses the camera's view is recorded (passes seen only low in
-that view are recorded but not announced), from a minute before it starts to
-a minute after it ends; the
-clock's T0 is its highest point. Home coordinates reach the service through
+that view are recorded but not announced). Only the time a satellite is in the
+camera's view counts, capped at 8 minutes (`CAMERA_SPAN`) around the moment
+the most are in view, plus a minute either side; the clock's T0 is that
+moment. A batch that has spread out can keep a satellite or two in view for
+most of an hour (2026-246 on Nov 7 recorded 25 minutes before the cap). Home coordinates reach the service through
 `~/go2rtc/home.env`, written by `install.sh` from `.env`. The thresholds
 are guesses until we see a few trains.
 
