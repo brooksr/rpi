@@ -45,7 +45,9 @@ STARLINK_JSON = HOME / 'homeassistant/.starlink-trains.json'  # HA: /config/.sta
 PASS_PAD = datetime.timedelta(minutes=1)
 RAW_DAYS, OUT_DAYS = 30, 90
 IMAGE = 'alexxit/go2rtc:1.9.14-hardware'
-STREAM = 'rtsp://127.0.0.1:8556/office_window'  # capture instance, camera's MJPEG, no transcode
+# The capture instance's multipart MJPEG: the camera's own JPEGs, no transcode.
+# Its RTSP output dropped about two frames in three.
+STREAM = 'http://127.0.0.1:1985/api/stream.mjpeg?src=office_window'
 API = 'https://ll.thespacedevs.com/2.3.0/launches/{}/?format=json&mode=normal'
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf'
 SPEED = 8  # timelapse speed-up
@@ -139,10 +141,10 @@ def record(launch):
     while now() < window(launch)[1]:
         seconds = (window(launch)[1] - now()).total_seconds()
         part = raw / f'part-{int(time.time())}.mkv'
-        # The camera delivers about 7 fps but the stream claims 25, so stamp
-        # frames with arrival time or the video runs fast.
+        # Multipart MJPEG carries no timestamps, and the camera's rate drops in
+        # low light, so stamp frames with arrival time or the video runs fast.
         process = subprocess.Popen(docker('ffmpeg', '-hide_banner', '-loglevel', 'error', '-use_wallclock_as_timestamps', '1',
-                                          '-rtsp_transport', 'tcp',
+                                          '-f', 'mpjpeg',
                                           '-i', STREAM, '-t', f'{seconds:.0f}', '-c', 'copy', f'/raw/{part.name}',
                                           network=True, mounts=[(raw, '/raw')]))
         while process.poll() is None:

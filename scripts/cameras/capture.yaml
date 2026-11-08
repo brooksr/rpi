@@ -12,9 +12,10 @@ webrtc:
 streams:
   # Via ffmpeg, not go2rtc's v4l2 source: in 1.9.14 that source left a thread
   # spinning at 100% CPU after every stream (e.g. each minute's snapshot) closed.
-  # The JPEGs are piped raw to stdout, not pushed over RTSP: go2rtc rebuilt
-  # about a third of the RTP/JPEG frames with chunks missing (purple, shifted).
-  office_window: exec:ffmpeg -hide_banner -loglevel error -f v4l2 -input_format mjpeg -video_size 1280x720 -i /dev/v4l/by-id/usb-GENERAL_GENERAL_-_UVC-video-index0 -c:v copy -f mjpeg -
+  # The JPEGs go to stdout as multipart (mpjpeg), not over RTSP: go2rtc rebuilt
+  # about a third of the RTP/JPEG frames with chunks missing (purple, shifted),
+  # and with raw -f mjpeg it ran many JPEGs together as one frame.
+  office_window: exec:ffmpeg -hide_banner -loglevel error -f v4l2 -input_format mjpeg -video_size 1280x720 -i /dev/v4l/by-id/usb-GENERAL_GENERAL_-_UVC-video-index0 -c:v copy -f mpjpeg -
   # The laptop's own webcam and microphone, for the BabySteps baby monitor.
   # Encoded here, once, while someone watches or the analyzer runs (the webcam
   # light shows it), on the Intel GPU (VAAPI): software x264 took most of a core.

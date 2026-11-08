@@ -99,9 +99,9 @@ Launch times come from the HA Vandenberg sensor's cache
 asks Launch Library 2 for that launch every 5 minutes, which follows holds
 (a slip of more than 10 minutes during recording discards it and waits). It
 records the camera's own MJPEG from the capture instance
-(`rtsp://127.0.0.1:8556/office_window`) with `-c copy` and wall-clock
-timestamps: the camera delivers 7–10 fps although the stream says more, so
-without them the video runs fast.
+over HTTP (`http://127.0.0.1:1985/api/stream.mjpeg?src=office_window`) with
+`-c copy` and wall-clock timestamps, since multipart MJPEG has none. Up to 25
+fps in daylight; the instance's RTSP output dropped about two frames in three.
 
 The window runs from T-1 to T+10 min (`BEFORE`, `AFTER`). On the first
 recording (Starlink 15-18, Oct 30 2026) the minute snapshots caught the rocket
