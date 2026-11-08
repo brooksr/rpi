@@ -16,10 +16,22 @@ filter="format=yuv444p,tmix=frames=3,fps=30,hqdn3d=4:12:8:20,split=3[day][raw][m
 [raw]lutyuv=y=max(0\,val-60)*255/195:u=128+(val-128)*0.3:v=128+(val-128)*0.3[night];\
 [m]scale=1:1:flags=area,geq=lum=${mask}:cb=${mask}:cr=${mask},scale=1280:720:flags=neighbor[mask];\
 [day][night][mask]maskedmerge,format=yuv420p"
+# Hard-link only frames that decode cleanly into a scratch dir: a truncated or
+# damaged JPEG shows up as a grey, green or purple smear in the video.
+good="$(mktemp -d "${HOME}/office-camera/.timelapse.XXXXXX")"
+trap 'rm -rf "${good}"' EXIT
 if compgen -G "${frames}/*.jpg" >/dev/null; then
+  docker run --rm --user "$(id -u):$(id -g)" --cpu-shares 256 --entrypoint sh \
+    -v "${HOME}/office-camera:/oc" alexxit/go2rtc:1.9.14-hardware -c '
+      for f in "/oc/frames/$1"/*.jpg; do
+        if [ -z "$(ffmpeg -v error -i "$f" -f null - 2>&1)" ]; then ln "$f" "/oc/$2/"
+        else echo "skipping damaged frame $f" >&2; fi
+      done' sh "${day}" "$(basename "${good}")"
+fi
+if compgen -G "${good}/*.jpg" >/dev/null; then
   # The host has no ffmpeg; the go2rtc image does.
   docker run --rm --user "$(id -u):$(id -g)" --cpu-shares 256 --entrypoint ffmpeg \
-    -v "${frames}:/frames:ro" -v "${out}:/out" alexxit/go2rtc:1.9.14-hardware \
+    -v "${good}:/frames:ro" -v "${out}:/out" alexxit/go2rtc:1.9.14-hardware \
     -hide_banner -loglevel error -y -framerate 60 -pattern_type glob -i '/frames/*.jpg' \
     -filter_complex "${filter}" \
     -c:v libx264 -preset veryfast -crf 28 -movflags +faststart "/out/.${day}.mp4"

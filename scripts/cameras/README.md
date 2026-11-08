@@ -48,13 +48,16 @@ stream:
 - `office-camera-snapshot.timer` runs `snapshot.sh` each minute. It writes
   `/config/media/office-camera/latest.jpg`, which the Overview card paints
   before live video connects, plus `~/office-camera/frames/<date>/HHMM.jpg`.
-  Junk first frames (no JPEG header) are dropped.
+  Junk first frames and frames cut short (no JPEG start or end marker) are
+  dropped.
 - `office-camera-timelapse.timer` runs `timelapse.sh` at 00:10. It turns
   yesterday's frames into `/config/media/office-camera/timelapse/<date>.mp4`
   (about 24 s: 60 frames a second, played at 30 fps with 3-frame blending),
   using the go2rtc image's ffmpeg because the host has none. Night frames
   (average brightness under 85) get their noise floor dropped to black and
   most colour removed, which keeps a day's video near 8 MB instead of 70+.
+  Every frame is decoded first and any that fail are left out, since one
+  damaged JPEG shows as a grey, green or purple smear (about 3 minutes a day).
   It keeps 2 days of frames (about 190 MB a day) and 14 days of videos.
 
 The cards load media through signed `media_source` URLs, not `/local`, which

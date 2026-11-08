@@ -9,8 +9,11 @@ tmp="$(mktemp "${media}/.latest.XXXXXX")"
 trap 'rm -f "${tmp}"' EXIT
 # The capture instance serves the camera's own JPEG, so no transcode is needed.
 curl -fsS -m 20 -o "${tmp}" "http://127.0.0.1:1985/api/frame.jpeg?src=office_window"
-# A freshly opened camera can hand back a junk first frame; keep only real JPEGs.
+# A freshly opened camera can hand back a junk first frame, and a busy one a
+# frame cut short (which smears grey/green in the timelapse); keep only JPEGs
+# with both a start and an end marker.
 [ "$(head -c 2 "${tmp}" | od -An -tx1 | tr -d " ")" = "ffd8" ]
+[ "$(tail -c 2 "${tmp}" | od -An -tx1 | tr -d " ")" = "ffd9" ]
 chmod 644 "${tmp}"
 cp "${tmp}" "${frames}/$(date +%H%M).jpg"
 mv "${tmp}" "${media}/latest.jpg"
