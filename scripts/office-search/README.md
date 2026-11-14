@@ -98,6 +98,9 @@ docker compose logs --tail 50
 The guide includes supported phrases, Music Assistant controls, the existing
 5 AM schedule toggle, adjustable feed/diaper routine intervals, a silent
 preview refresh and an Office-only Play now button.
+A button opens the EchoMuse controller dashboard (`http://HA_IP:8768`) for the
+bedroom speaker (EchoMuse/HA device formerly named Office; entity ids keep
+`office`).
 
 The existing `local_map_morning_baby_briefing` automation in
 `scripts/local-map/package.yaml` now calls `script.jarvis_morning_briefing`.

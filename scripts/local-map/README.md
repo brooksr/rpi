@@ -84,6 +84,7 @@ than a stale value.
 | Baby care | conditions + `sensor.babysteps_status` | — | General AAP/CDC guidance, not medical advice |
 | Recipe of the day | `recipes.json` from `scripts/recipes` | daily | Shuffle and a link into Recipes |
 | Device Health | `sensor.raspberry_pi` (HA host; the id predates the move) and `sensor.pi_health` | 30 / 10 min | The Pi posts its status by cron to webhook `pi_health_webhook` |
+| Device Health (EchoMuse) | `sensor.echomuse_health` | 10 min | The HA laptop's cron reads the EchoMuse controller database read-only (`echomuse_status.py`) and posts the bedroom speaker's CPU, temperature, memory, storage and Wi-Fi to webhook `echomuse_health_webhook`; offline after 5 min without a check-in |
 | Internet | `sensor.internet`: latency and loss, router, DNS via Pi-hole and router, HTTPS | 30 min | Offline only if nothing answers; ≥10% loss, ≥150 ms or a DNS/HTTPS failure is degraded |
 
 `sensor.internet_uptime` and `sensor.internet_latency` keep long-term hourly

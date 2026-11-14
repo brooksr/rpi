@@ -75,9 +75,16 @@ views:
             icon: mdi:microphone-message
           - type: markdown
             content: |-
-              Say **“Hey Jarvis”**, wait for Office to listen, then ask one question or give one command. You can also open **Assist** at the top of Home Assistant and type the same words.
+              Say **“Hey Jarvis”**, wait for the bedroom speaker to listen, then ask one question or give one command. You can also open **Assist** at the top of Home Assistant and type the same words.
 
-              Weather, household questions and music commands use Home Assistant directly. General questions use the laptop's local AI. For fresh internet information, say **“Search the web for…”** and allow up to two minutes for an answer.
+              Weather, household questions and music commands use Home Assistant directly. General questions use Qwen on the work MacBook (M5); the first answer can take about 10 seconds while it wakes. For fresh internet information, say **“Search the web for…”** and allow up to two minutes for an answer.
+          - type: button
+            name: EchoMuse dashboard
+            icon: mdi:speaker-wireless
+            show_state: false
+            tap_action:
+              action: url
+              url_path: http://@@HA_IP@@:8768
           - type: markdown
             title: Weather and getting out
             content: |-

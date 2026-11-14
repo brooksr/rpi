@@ -37,20 +37,26 @@ python3 "${HERE}/../render_env.py" "${STAGE}"
 "${SSH[@]}" 'docker exec homeassistant test -d /config/packages'
 # The Pi posts its health to a webhook whose id is in secrets.yaml. package.yaml
 # refers to it, so it has to exist before the config check below.
-webhook="$("${SSH[@]}" "docker exec -i homeassistant python3 -c '
+ensure_secret() {
+  local value
+  value="$("${SSH[@]}" "docker exec -i homeassistant python3 -c 'NAME=\"$1\"
 import pathlib, re, secrets, shutil, time
 path = pathlib.Path(\"/config/secrets.yaml\")
 text = path.read_text() if path.exists() else \"\"
-found = re.search(r\"^pi_health_webhook: *(\\S+)\", text, re.M)
+found = re.search(rf\"^{NAME}: *(\\S+)\", text, re.M)
 if not found:
     if path.exists():
         shutil.copy(path, f\"{path}.bak-{time.strftime(\"%Y%m%d%H%M%S\")}\")
     value = secrets.token_hex(16)
-    path.write_text(text + (\"\" if text.endswith(\"\\n\") or not text else \"\\n\") + f\"pi_health_webhook: {value}\\n\")
+    path.write_text(text + (\"\" if text.endswith(\"\\n\") or not text else \"\\n\") + f\"{NAME}: {value}\\n\")
     print(value)
 else:
     print(found.group(1))
 '")"
+  echo "${value}"
+}
+webhook="$(ensure_secret pi_health_webhook)"
+echomuse_webhook="$(ensure_secret echomuse_health_webhook)"
 tar -C "${STAGE}" -cf - . | "${SSH[@]}" "docker exec -i homeassistant python3 -c '
 import datetime, pathlib, subprocess, sys, tarfile
 root = pathlib.Path(\"/config\")
@@ -122,5 +128,22 @@ EOF
   echo "Pi health: posted from ${PI_HOST} every 10 minutes"
 else
   "${PI_SSH[@]}" "{ crontab -l 2>/dev/null | grep -v 'pi-health/system_status.py' || true; } | crontab -"
+fi
+# The EchoMuse controller runs on the HA laptop; post its speaker's health from there.
+if "${SSH[@]}" 'test -f ~/echomuse/data/echomuse.db'; then
+  "${SSH[@]}" 'mkdir -p ~/echomuse-health && chmod 700 ~/echomuse-health'
+  scp -q "${SSH_OPTS_BATCH[@]}" "${HERE}/echomuse_status.py" "${HA_TARGET}:echomuse-health/echomuse_status.py"
+  printf 'http://127.0.0.1:8123/api/webhook/%s\n' "${echomuse_webhook}" | "${SSH[@]}" 'umask 077; cat > ~/echomuse-health/webhook-url'
+  "${SSH[@]}" bash -s <<'EOF'
+set -euo pipefail
+push='python3 $HOME/echomuse-health/echomuse_status.py $HOME/echomuse/data/echomuse.db | curl -fsS -m 20 -H "Content-Type: application/json" --data-binary @- "$(cat $HOME/echomuse-health/webhook-url)" >/dev/null 2>>$HOME/echomuse-health/push.log'
+{ crontab -l 2>/dev/null | grep -v 'echomuse-health/echomuse_status.py' || true; echo "*/10 * * * * ${push}"; } | crontab -
+# HA answers 200 even before the webhook registers, so wait for the frontend
+# and a little longer before the first reading; cron covers any miss.
+for _ in $(seq 1 30); do curl -fs -m 5 -o /dev/null http://127.0.0.1:8123/manifest.json && break; sleep 3; done
+sleep 20
+eval "${push}" || true
+EOF
+  echo "EchoMuse health: posted from ${HA_HOST} every 10 minutes"
 fi
 echo "Local Map installed: http://${HA_HOST}:8123/local-map/conditions"

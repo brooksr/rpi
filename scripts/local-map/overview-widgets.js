@@ -442,11 +442,15 @@ class PiHealthCard extends HTMLElement {
     const items=this.shadowRoot.querySelector('#items');
     const tile=(label,value,note,color)=>{const item=make('section',undefined,'item');item.style.borderLeftColor=color;item.append(make('div',label,'label'),make('div',value,'value'));if(note)item.append(make('div',note,'small'));items.append(item);};
     if(!ok){items.append(make('p','Device status unavailable.','small'));return;}
-    tile('CPU',`${Math.round(a.cpu_percent)}%`,`Load ${a.load.map(v=>v.toFixed(2)).join(' ')}`,level(a.load[0]/a.cpu_count*100,75,100));
-    tile('Temperature',`${Math.round(a.temperature_c)}°C`,a.undervoltage?'Undervoltage detected':a.undervoltage===null?'':'Power OK',a.undervoltage?'#ff7b7b':level(a.temperature_c,70,80));
+    // EchoMuse speakers report hourly CPU and cores online instead of a load average.
+    if(Array.isArray(a.load))tile('CPU',`${Math.round(a.cpu_percent)}%`,`Load ${a.load.map(v=>v.toFixed(2)).join(' ')}`,level(a.load[0]/a.cpu_count*100,75,100));
+    else if(a.cpu_percent!==undefined&&a.cpu_percent!==null)tile('CPU',`${Math.round(a.cpu_percent)}%`,a.cores_online?`${a.cores_online} of ${a.cpu_count} cores online · hourly average`:'Hourly average',level(a.cpu_percent,75,90));
+    if(a.temperature_c!==undefined&&a.temperature_c!==null)tile('Temperature',`${Math.round(a.temperature_c)}°C`,a.undervoltage?'Undervoltage detected':a.undervoltage===null?'':'Power OK',a.undervoltage?'#ff7b7b':level(a.temperature_c,70,80));
     const size=mb=>mb>=1024?`${(mb/1024).toFixed(1)} GB`:`${mb} MB`;
-    tile('Memory',`${Math.round(a.memory_percent)}%`,`${size(a.memory_available_mb)} free of ${size(a.memory_total_mb)} · swap ${Math.round(a.swap_percent??0)}%`,level(Math.max(a.memory_percent,a.swap_percent??0),70,85));
-    tile(a.undervoltage===null?'Disk':'SD card',`${Math.round(a.disk_percent)}%`,`${a.disk_free_gb} GB free${a.database_mb!==null?` · HA database ${a.database_mb} MB`:''}`,level(a.disk_percent,75,90));
+    if(a.memory_percent!==undefined&&a.memory_percent!==null)tile('Memory',`${Math.round(a.memory_percent)}%`,`${size(a.memory_available_mb)} free of ${size(a.memory_total_mb)}${a.swap_percent===null?'':` · swap ${Math.round(a.swap_percent??0)}%`}`,level(Math.max(a.memory_percent,a.swap_percent??0),70,85));
+    if(a.disk_percent!==undefined&&a.disk_percent!==null)tile(a.undervoltage===null?'Disk':'SD card',`${Math.round(a.disk_percent)}%`,`${a.disk_free_gb} GB free${a.database_mb!==null?` · HA database ${a.database_mb} MB`:''}`,level(a.disk_percent,75,90));
+    const w=a.wifi;
+    if(w&&w.rssi!==null)tile('Wi-Fi',`${w.rssi} dBm`,[w.ghz?`${w.ghz} GHz`:'',w.mbps?`${w.mbps} Mbps`:'',w.rtt_ms!==null?`${w.rtt_ms} ms round trip`:''].filter(Boolean).join(' · '),level(-w.rssi,67,75));
     const b=a.battery;
     if(b)tile('Battery',`${b.percent}%`,[b.ac_online===false?'On battery':'On AC',b.health_percent?`health ${b.health_percent}%`:'',b.cycles?`${b.cycles} cycles`:''].filter(Boolean).join(' · '),b.ac_online===false?'#ffb56b':level(100-(b.health_percent??100),50,70));
     const days=Math.floor(a.uptime_hours/24);
@@ -1261,6 +1265,7 @@ customElements.whenDefined('home-overview-view-strategy').then(() => {
     const native=view.sections||[];
     const piHealth=hass.states['sensor.pi_health']?[card('pi-health-card',{hide_title:true,name:'Home Assistant server'}),
       card('pi-health-card',{hide_title:true,entity:'sensor.pi_health',name:'Raspberry Pi · Pi-hole, BabySteps',every:'10 minutes',fresh_minutes:25})]:[card('pi-health-card',{hide_title:true})];
+    if(hass.states['sensor.echomuse_health'])piHealth.push(card('pi-health-card',{hide_title:true,entity:'sensor.echomuse_health',name:'EchoMuse · bedroom speaker',every:'10 minutes',fresh_minutes:25}));
     const pi={type:'grid',cards:[{type:'heading',heading:'Device Health',heading_style:'title',icon:'mdi:server'},...piHealth,
       {type:'heading',heading:'Internet',heading_style:'title',icon:'mdi:web'},card('internet-card',{hide_title:true})]};
     if(!view.sidebar)return {...view,sections:[...sections,...native,pi]};

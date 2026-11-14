@@ -337,6 +337,36 @@ template:
           battery: "{{ trigger.json.battery }}"
           database_mb: "{{ trigger.json.database_mb }}"
           checked_at: "{{ trigger.json.checked_at }}"
+  # The HA laptop posts the EchoMuse speaker's health from the controller's
+  # database every 10 minutes (echomuse_status.py).
+  - trigger:
+      - trigger: webhook
+        webhook_id: !secret echomuse_health_webhook
+        allowed_methods: [POST]
+        local_only: true
+    sensor:
+      - name: EchoMuse Health
+        unique_id: local_map_echomuse_health
+        state: "{{ trigger.json.status }}"
+        attributes:
+          host: "{{ trigger.json.host }}"
+          cpu_percent: "{{ trigger.json.cpu_percent }}"
+          cpu_count: "{{ trigger.json.cpu_count }}"
+          cores_online: "{{ trigger.json.cores_online }}"
+          load: "{{ trigger.json.load }}"
+          temperature_c: "{{ trigger.json.temperature_c }}"
+          memory_percent: "{{ trigger.json.memory_percent }}"
+          memory_available_mb: "{{ trigger.json.memory_available_mb }}"
+          memory_total_mb: "{{ trigger.json.memory_total_mb }}"
+          swap_percent: "{{ trigger.json.swap_percent }}"
+          disk_percent: "{{ trigger.json.disk_percent }}"
+          disk_free_gb: "{{ trigger.json.disk_free_gb }}"
+          uptime_hours: "{{ trigger.json.uptime_hours }}"
+          undervoltage: "{{ trigger.json.undervoltage }}"
+          battery: "{{ trigger.json.battery }}"
+          database_mb: "{{ trigger.json.database_mb }}"
+          wifi: "{{ trigger.json.wifi }}"
+          checked_at: "{{ trigger.json.checked_at }}"
   - sensor:
       - name: Internet Uptime
         unique_id: local_map_internet_uptime
